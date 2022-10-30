@@ -9,7 +9,7 @@ class CLIPModel(nn.Module):
         temp,
         image_embedding_size,
         text_embedding_size,
-        audio_encoder=resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+        audio_encoder=resnet50(weights=ResNet50_Weights.IMAGENET1K_V2),
     ):
         super().__init__()
         self.audio_encoder = audio_encoder

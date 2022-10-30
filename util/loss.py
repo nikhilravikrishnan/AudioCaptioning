@@ -3,8 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class InfoNCE(nn.Module):
-    def __init__(self, temp) -> None:
-        self.temperature = 1
+    def __init__(self, temp=1) -> None:
+        self.temperature = temp
         super().__init__()
 
     def forward(self, text_embeddings, audio_embeddings):
