@@ -1,0 +1,9 @@
+network:
+  model: ResNet
+  get_feat_vec: True
+  embedding_layer: avgpool
+
+weights:
+  pretrained: True
+  retrieval_method: from_library
+  weight_file: None

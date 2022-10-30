@@ -40,9 +40,11 @@ examples-rclpy-minimal-client==0.15.0
 examples-rclpy-minimal-publisher==0.15.0
 examples-rclpy-minimal-service==0.15.0
 examples-rclpy-minimal-subscriber==0.15.0
+filelock==3.8.0
 gazebo-msgs==3.7.0
 geographic-msgs==1.0.4
 geometry-msgs==4.2.2
+huggingface-hub==0.10.1
 idna==3.4
 image-geometry==3.0.3
 interactive-markers==2.3.2
@@ -86,6 +88,7 @@ quality-of-service-demo-py==0.20.2
 rcl-interfaces==1.2.0
 rclpy==3.3.4
 rcutils==5.1.1
+regex==2022.9.13
 requests==2.28.1
 resampy==0.4.2
 resource-retriever==3.1.0
@@ -168,11 +171,14 @@ tf2-ros-py==0.25.1
 tf2-tools==0.25.1
 theora-image-transport==2.5.0
 threadpoolctl==3.1.0
+tokenizers==0.13.1
 topic-monitor==0.20.2
 torch==1.13.0
 torchlibrosa==0.0.9
 torchvision==0.14.0
+tqdm==4.64.1
 trajectory-msgs==4.2.2
+transformers==4.23.1
 turtlesim==1.4.2
 typing_extensions==4.4.0
 unique-identifier-msgs==2.2.1
