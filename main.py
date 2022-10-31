@@ -1,13 +1,15 @@
 import yaml
 import argparse
 import os
+import torch
+import models.clip
 
 from transformers import ViTFeatureExtractor, ViTModel
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
 parser.add_argument("--config", default="./configs/pann.yaml")
 
-def run_vision_transformer():
+def run_vision_transformer(images):
     """
     Make predictions on the dataset using a Vision Transformer model on Mel-Spectrogram image representations
     of input audio.
@@ -19,6 +21,10 @@ def run_vision_transformer():
     head by default. See their documentation here:
     https://huggingface.co/docs/transformers/model_doc/vit#vision-transformer-vit
     """
+    feature_extractor = ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224-in21k")
+    image_model = ViTModel.from_pretrained("google/vit-base-patch16-224-in21k")
+    clip_model = models.clip.CLIPModel(1, 768, 0, image_model, feature_extractor)
+    clip_model(images)
     return
 
 def run_resnet():
