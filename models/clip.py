@@ -10,7 +10,7 @@ class ViTClip(nn.Module):
         self,
         temp,
         image_embedding_size,
-        text_embedding_size,
+        text_embedding_size=768,
         audio_encoder=ViTModel.from_pretrained("google/vit-base-patch16-224-in21k"),
         feature_extractor=ViTFeatureExtractor.from_pretrained("google/vit-base-patch16-224-in21k")
     ):
@@ -46,8 +46,8 @@ class BaseClip(nn.Module):
     def __init__(
         self,
         temp,
-        image_embedding_size,
-        text_embedding_size,
+        image_embedding_size=2048,
+        text_embedding_size=768,
         audio_encoder=resnet50(weights=ResNet50_Weights.IMAGENET1K_V2),
         layer_dict={"avgpool":"features"}
     ):
@@ -64,13 +64,17 @@ class BaseClip(nn.Module):
     def forward(self, batch):
         # Getting audio and text features
         raw_audio_features = batch["image"]
+        processed_audio = []
         with torch.no_grad():
-            audio_features = audio_encoders.get_audio_feature_vector(self.audio_encoder, raw_audio_features, self.layer_dict)
+            for i in range(raw_audio_features.size()[0]):
+                audio_features = audio_encoders.get_audio_feature_vector(self.audio_encoder, raw_audio_features[i, :, :, :], self.layer_dict)
+                processed_audio.append(audio_features)
+        audio_stack = torch.stack(processed_audio)
         text_features = self.text_encoder(
             input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
         )
         # Getting audio and Text Embeddings (with same dimension)
-        audio_embeddings = self.audio_projection(audio_features)
+        audio_embeddings = self.audio_projection(audio_stack)
         text_embeddings = self.text_projection(text_features)
         return audio_embeddings, text_embeddings
 
@@ -79,7 +83,7 @@ class PANNClip(nn.Module):
         self,
         temp,
         image_embedding_size,
-        text_embedding_size,
+        text_embedding_size=768,
         audio_encoder=audio_encoders.Cnn14(), #add default params
     ):
         super().__init__()

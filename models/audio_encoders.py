@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.functional as F
 import torchvision
+from torchvision.models.feature_extraction import create_feature_extractor
 from torchlibrosa.stft import Spectrogram, LogmelFilterBank
 from torchlibrosa.augmentation import SpecAugmentation
 
@@ -26,12 +27,10 @@ def get_audio_feature_vector(model: nn.Module, img_tensors: torch.Tensor, layer_
 
     """
     features = []
-    model = torchvision.create_feature_extractor(model, layer_dict)
-    for n in range(img_tensors.shape[0]):
-        out = model(img_tensors[n, :, :, :])
-        feat_vec = [v for k, v in out.items()][0]
-        features.append(feat_vec)
-    features = torch.FloatTensor(features)
+    model = create_feature_extractor(model, layer_dict)
+    out = model(img_tensors.unsqueeze(0))
+    features = out["features"]
+    features = torch.reshape(features, (features.size()[0], features.size()[1]))
     return features
 
 # Pretrained Audio Neural Networks
