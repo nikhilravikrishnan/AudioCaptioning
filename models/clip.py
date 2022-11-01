@@ -82,7 +82,7 @@ class PANNClip(nn.Module):
     def __init__(
         self,
         temp,
-        image_embedding_size,
+        image_embedding_size=2048,
         text_embedding_size=768,
         audio_encoder=audio_encoders.Cnn14(), #add default params
     ):
@@ -97,13 +97,17 @@ class PANNClip(nn.Module):
 
     def forward(self, batch):
         raw_audio_features = batch["image"]
+        processed_audio = []
         with torch.no_grad():
-            audio_features = self.audio_encoder(raw_audio_features)
+            for i in range(raw_audio_features.size()[0]):
+                audio_features = self.audio_encoder(raw_audio_features[i, :, :, :])
+                processed_audio.append(audio_features["embedding"])
+        audio_stack = torch.stack(processed_audio)
         text_features = self.text_encoder(
             input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
         )
         # Getting audio and Text Embeddings (with same dimension)
-        audio_embeddings = self.audio_projection(audio_features["embeddings"])
+        audio_embeddings = self.audio_projection(audio_stack)
         text_embeddings = self.text_projection(text_features)
         return audio_embeddings, text_embeddings
 
