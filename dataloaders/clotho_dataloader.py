@@ -2,7 +2,6 @@ import torch
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import Dataset
 import os
-import clotho_dataset
 from transformers import RobertaTokenizer
 import numpy as np
 
@@ -12,6 +11,13 @@ data_dir: Directory where the data is stored
 split: "dev" or "eva"
 tokenizer: Tokenizer to use for encoding the captions
 vocab_file: Path to the vocab file to use for encoding the captions (Optional)
+"""
+
+"""
+TODO:
+1. Add the option to use a vocab file for encoding the captions
+2. Preprocess the captions to add the <s> and </s> tokens
+3. Resample spectrogram and add padding
 """
 class AudioCaptioningDataset(Dataset):
     def __init__(self, data_dir, split, tokenizer = 'roberta-base', vocab_file = None):
@@ -46,6 +52,13 @@ class AudioCaptioningDataset(Dataset):
         spectrogram = torch.from_numpy(spectrogram)
 
         return spectrogram, encoded_caption
+
+
+class AudioCaptionDataloader(DataLoader):
+    def __init__(self, data_dir, split, tokenizer = 'roberta-base', vocab_file = None):
+        dataset = AudioCaptioningDataset(data_dir, split, tokenizer, vocab_file)
+        super().__init__(dataset)
+
 
 
 
