@@ -1,3 +1,10 @@
+hyperparameters:
+  data_dir: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data'
+  split: 'dev'
+  epochs: 1000
+  batch_size: 16
+
+
 network:
   model: ResNet
   get_feat_vec: True

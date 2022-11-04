@@ -1,9 +1,16 @@
+import sys
+
+sys.path.append("/home/nikhilrk/MusicCaptioning/MusicCaptioning/models")
+print(sys.path)
 import torch
 import torch.nn as nn
 import text_encoder
 import audio_encoders
 from torchvision.models import resnet50, ResNet50_Weights
 from transformers import ViTModel, ViTFeatureExtractor
+from util.loss import InfoNCE
+
+import numpy as np
 
 class ViTClip(nn.Module):
     def __init__(
@@ -62,6 +69,9 @@ class BaseClip(nn.Module):
         self.layer_dict = layer_dict
 
     def forward(self, batch):
+
+        loss = InfoNCE()
+
         # Getting audio and text features
         raw_audio_features = batch["image"]
         processed_audio = []
@@ -73,10 +83,14 @@ class BaseClip(nn.Module):
         text_features = self.text_encoder(
             input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
         )
+
         # Getting audio and Text Embeddings (with same dimension)
         audio_embeddings = self.audio_projection(audio_stack)
         text_embeddings = self.text_projection(text_features)
-        return audio_embeddings, text_embeddings
+
+        batch_loss = loss.forward(text_embeddings, audio_embeddings)
+
+        return batch_loss, audio_embeddings, text_embeddings
 
 class PANNClip(nn.Module):
     def __init__(
@@ -126,10 +140,14 @@ class ProjectionHead(nn.Module):
         self.layer_norm = nn.LayerNorm(projection_dim)
     
     def forward(self, x):
+        
         projected = self.projection(x)
         x = self.relu(projected)
         x = self.fc(x)
         x = self.dropout(x)
         x = x + projected # Residual
         x = self.layer_norm(x)
+        
         return x
+
+

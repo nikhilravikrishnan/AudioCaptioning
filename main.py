@@ -1,11 +1,14 @@
 import yaml
 import argparse
 import os
-
+from torch.utils.data.dataloader import DataLoader
+from dataloaders.clotho_dataloader import AudioCaptioningDataset
+from models.clip import BaseClip 
 from transformers import ViTFeatureExtractor, ViTModel
+import torch.optim 
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
-parser.add_argument("--config", default="./configs/pann.yaml")
+parser.add_argument("--config", default="./configs/resnet.yaml")
 
 def run_vision_transformer():
     """
@@ -34,6 +37,58 @@ def run_resnet():
     https://stackoverflow.com/questions/52796121/how-to-get-the-output-from-a-specific-layer-from-a-pytorch-model)
 
     """
+    epochs = args.epochs
+    optimizer = torch.optim.adamw(lr=1e-3, weight_decay=0.)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", patience=1.0, factor=0.8)
+
+
+    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
+    dataloader = DataLoader(dataset, batch_size=args.batch_size)
+    model = BaseClip()
+    
+    
+
+    # Training and Validation
+    
+    for e in range(epochs):
+        
+        # Training
+        train_total_loss = 0
+        model.train()
+        for (idx,batch) in dataloader:
+            
+            batch_loss, _, __ = model.forward(batch)
+            optimizer.zero_grad()
+            batch_loss.backward()
+            optimizer.step()
+            lr_scheduler.step()
+            train_total_loss += batch_loss.item()
+        
+        
+        print('Training Loss:', train_total_loss/len(dataloader))
+        print('Epoch:', e)
+
+
+        model.eval()    
+        val_total_loss = 0
+        
+        # Validation
+        for (idx,batch) in dataloader:
+            batch_loss, _, __ = model.forward(batch)
+            val_total_loss += batch_loss.item()
+
+        print('Validation Loss:', val_total_loss/len(dataloader))    
+
+    
+        
+
+        
+
+
+
+        
+
     return
 
 def run_pann():
@@ -60,14 +115,15 @@ def main():
         for k, v in config[key].items():
             setattr(args, k, v)
 
+
     # Get the dataset
 
     # Make predictions using the appropriate method for the selected model
-    if args["model"] == "ViT":
+    if args.model == "ViT":
         run_vision_transformer()
-    if args["model"] == "ResNet":
+    if args.model == "ResNet":
         run_resnet()
-    if args["model"] == "Wavegram_Logmel_Cnn14":
+    if args.model == "Wavegram_Logmel_Cnn14":
         run_pann()
         
 
