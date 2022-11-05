@@ -29,7 +29,9 @@ def get_audio_feature_vector(model: nn.Module, img_tensors: torch.Tensor, layer_
     """
     features = []
     model = create_feature_extractor(model, layer_dict)
-    out = model(img_tensors.unsqueeze(0))
+    img_tensors = img_tensors.unsqueeze(0)
+    model = model.double()
+    out = model(img_tensors)
     features = out["features"]
     features = torch.reshape(features, (features.size()[0], features.size()[1]))
     return features

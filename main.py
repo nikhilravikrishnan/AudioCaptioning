@@ -1,14 +1,16 @@
 import yaml
 import argparse
 import os
+import torch.utils.data
 from torch.utils.data.dataloader import DataLoader
 from dataloaders.clotho_dataloader import AudioCaptioningDataset
 from models.clip import BaseClip 
 from transformers import ViTFeatureExtractor, ViTModel
 import torch.optim 
+from tensorboard_logger import configure, log_value
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
-parser.add_argument("--config", default="./configs/resnet.yaml")
+parser.add_argument("--config", default="/home/nikhilrk/MusicCaptioning/MusicCaptioning/configs/resnet.yaml")
 
 def run_vision_transformer():
     """
@@ -37,17 +39,34 @@ def run_resnet():
     https://stackoverflow.com/questions/52796121/how-to-get-the-output-from-a-specific-layer-from-a-pytorch-model)
 
     """
+
+
+    model = BaseClip(temp=1)
+   
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+
     epochs = args.epochs
-    optimizer = torch.optim.adamw(lr=1e-3, weight_decay=0.)
+    optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
 
 
-    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
-    dataloader = DataLoader(dataset, batch_size=args.batch_size)
-    model = BaseClip()
+    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split, vocab_file = args.vocab_file)
+    # dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+
+    # Create train and validation dataloaders
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
     
-    
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+
+    min_val_loss = float("inf")
+
+    configure(args.save_dir + '/runs/', flush_secs=5)
 
     # Training and Validation
     
@@ -56,36 +75,47 @@ def run_resnet():
         # Training
         train_total_loss = 0
         model.train()
-        for (idx,batch) in dataloader:
+        for (idx,batch) in enumerate(train_dataloader):
+
+            # Send to device
+            # batch = {k: v.to(device) for k, v in batch.items()}
+            batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
             
-            batch_loss, _, __ = model.forward(batch)
+            batch_loss, audio_encoders, text_encoders = model.forward(batch)
             optimizer.zero_grad()
             batch_loss.backward()
             optimizer.step()
-            lr_scheduler.step()
+            lr_scheduler.step(metrics=batch_loss)
             train_total_loss += batch_loss.item()
         
         
-        print('Training Loss:', train_total_loss/len(dataloader))
+        print('Training Loss:', train_total_loss/len(train_dataloader))
         print('Epoch:', e)
 
+        log_value('train_loss', train_total_loss/len(train_dataloader), e)
+        log_value('learning_rate', optimizer.param_groups[0]['lr'], e)
+
+
+        save_filename = os.path.join(args.save_dir, 'model_{}.pth'.format(e))
 
         model.eval()    
         val_total_loss = 0
         
         # Validation
-        for (idx,batch) in dataloader:
+        for (idx,batch) in val_dataloader:
             batch_loss, _, __ = model.forward(batch)
             val_total_loss += batch_loss.item()
 
-        print('Validation Loss:', val_total_loss/len(dataloader))    
+        print('Validation Loss:', val_total_loss/len(val_dataloader))  
 
-    
-        
+        log_value('val_loss', val_total_loss/len(val_dataloader), e)
+        log_value('learning_rate', optimizer.param_groups[0]['lr'], e)
 
-        
-
-
+        if val_total_loss < min_val_loss:
+            print("Saving...")
+            torch.save(model.state_dict(), save_filename)
+            print('Saved as %s' % save_filename)  
+            min_val_loss = val_total_loss
 
         
 

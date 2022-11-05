@@ -1,7 +1,8 @@
 import sys
 
-sys.path.append("/home/nikhilrk/MusicCaptioning/MusicCaptioning/models")
+sys.path.append("/home/nikhilrk/MusicCaptioning/MusicCaptioning/")
 print(sys.path)
+
 import torch
 import torch.nn as nn
 import text_encoder
@@ -9,6 +10,8 @@ import audio_encoders
 from torchvision.models import resnet50, ResNet50_Weights
 from transformers import ViTModel, ViTFeatureExtractor
 from util.loss import InfoNCE
+
+
 
 import numpy as np
 
@@ -56,7 +59,8 @@ class BaseClip(nn.Module):
         image_embedding_size=2048,
         text_embedding_size=768,
         audio_encoder=resnet50(weights=ResNet50_Weights.IMAGENET1K_V2),
-        layer_dict={"avgpool":"features"}
+        layer_dict={"avgpool":"features"},
+        vocab_file="/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/words_list.p"
     ):
         super().__init__()
         self.audio_encoder = audio_encoder
@@ -67,21 +71,32 @@ class BaseClip(nn.Module):
         self.audio_embeddings = None
         self.text_embeddings = None
         self.layer_dict = layer_dict
+        self.vocab_file = vocab_file
+        self.word_map = np.load(self.vocab_file, allow_pickle=True)
 
     def forward(self, batch):
 
         loss = InfoNCE()
 
+
         # Getting audio and text features
-        raw_audio_features = batch["image"]
+        raw_audio_features = batch[0]
+        raw_ids = batch[1]
+        raw_mask = batch[2]
+
+        # Reshape raw_ids and raw_mask to (batch_size, seq_len)
+        raw_ids = raw_ids.reshape(-1, raw_ids.shape[-1])
+        raw_mask = raw_mask.reshape(-1, raw_mask.shape[-1])
+        
         processed_audio = []
         with torch.no_grad():
             for i in range(raw_audio_features.size()[0]):
                 audio_features = audio_encoders.get_audio_feature_vector(self.audio_encoder, raw_audio_features[i, :, :, :], self.layer_dict)
                 processed_audio.append(audio_features)
         audio_stack = torch.stack(processed_audio)
+        
         text_features = self.text_encoder(
-            input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
+            input_ids=raw_ids, attention_mask=raw_mask
         )
 
         # Getting audio and Text Embeddings (with same dimension)
@@ -133,14 +148,17 @@ class ProjectionHead(nn.Module):
         dropout=0.1
     ):
         super().__init__()
-        self.projection = nn.Linear(embedding_dim, projection_dim)
+        self.projection = nn.Linear(embedding_dim, projection_dim).double()
         self.relu = nn.ReLU()
-        self.fc = nn.Linear(projection_dim, projection_dim)
+        self.fc = nn.Linear(projection_dim, projection_dim).double()
         self.dropout = nn.Dropout(dropout)
-        self.layer_norm = nn.LayerNorm(projection_dim)
+        self.layer_norm = nn.LayerNorm(projection_dim).double()
     
     def forward(self, x):
         
+        # Reshape x to (batch_size, seq_len, embedding_dim)
+        x = x.reshape(-1, x.shape[-1]).double()
+
         projected = self.projection(x)
         x = self.relu(projected)
         x = self.fc(x)

@@ -3,6 +3,8 @@ hyperparameters:
   split: 'dev'
   epochs: 1000
   batch_size: 16
+  vocab_file: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/words_list.p'
+  save_dir: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/checkpoints/'
 
 
 network:
