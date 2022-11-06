@@ -1,3 +1,12 @@
+hyperparameters:
+  data_dir: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data'
+  split: 'dev'
+  epochs: 1000
+  batch_size: 16
+  vocab_file: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/words_list.p'
+  save_dir: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/checkpoints/'
+
+
 network:
   model: ResNet
   get_feat_vec: True
