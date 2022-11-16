@@ -4,7 +4,7 @@ import os
 import torch.utils.data
 from torch.utils.data.dataloader import DataLoader
 from dataloaders.clotho_dataloader import AudioCaptioningDataset
-from models.clip import BaseClip 
+from models.clip import BaseClip, ViTClip, PANNClip
 from transformers import ViTFeatureExtractor, ViTModel
 import torch.optim 
 from tensorboard_logger import configure, log_value
@@ -12,21 +12,7 @@ from tensorboard_logger import configure, log_value
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
 parser.add_argument("--config", default="/home/nikhilrk/MusicCaptioning/MusicCaptioning/configs/resnet.yaml")
 
-def run_vision_transformer():
-    """
-    Make predictions on the dataset using a Vision Transformer model on Mel-Spectrogram image representations
-    of input audio.
-
-    See the original paper here:
-    https://arxiv.org/pdf/2010.11929.pdf
-
-    The implementation used comes from the HuggingFace transformers library and does not include a classification
-    head by default. See their documentation here:
-    https://huggingface.co/docs/transformers/model_doc/vit#vision-transformer-vit
-    """
-    return
-
-def run_resnet():
+def train_encoders():
     """
     Make predictions on the dataset using a ResNet-50 model on Mel-Spectrogram image representations
     of input audio.
@@ -39,9 +25,15 @@ def run_resnet():
     https://stackoverflow.com/questions/52796121/how-to-get-the-output-from-a-specific-layer-from-a-pytorch-model)
 
     """
-
-
-    model = BaseClip(temp=1)
+    model = None
+    if args.model == "ViT":
+        model = ViTClip()
+    if args.model == "ResNet":
+        model = BaseClip(temp=1)
+    if args.model == "PANN":
+        model = PANNClip()
+    else:
+        raise NotImplementedError
    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
@@ -121,19 +113,6 @@ def run_resnet():
 
     return
 
-def run_pann():
-    """
-    Make predictions on the dataset using a Pretrained Audio Neural Network
-    (a CNN pretrained for audio classification using spectrogram images)
-
-    See the original paper here:
-    https://arxiv.org/pdf/1912.10211.pdf
-
-    And GitHub repo here:
-    https://github.com/qiuqiangkong/audioset_tagging_cnn
-    """
-    return
-
 def main():
     # Use a config file to make sure we perform the correct experimental setup
     global args
@@ -149,12 +128,7 @@ def main():
     # Get the dataset
 
     # Make predictions using the appropriate method for the selected model
-    if args.model == "ViT":
-        run_vision_transformer()
-    if args.model == "ResNet":
-        run_resnet()
-    if args.model == "Wavegram_Logmel_Cnn14":
-        run_pann()
+    train_encoders()
         
 
 if __name__ == "__main__":
