@@ -1,16 +1,18 @@
 import yaml
 import argparse
 import os
+import sys
 import torch.utils.data
-from torch.utils.data.dataloader import DataLoader
-from dataloaders.clotho_dataloader import AudioCaptioningDataset
-from models.clip import BaseClip 
-from transformers import ViTFeatureExtractor, ViTModel
-import torch.optim 
-from tensorboard_logger import configure, log_value
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
-parser.add_argument("--config", default="/home/nikhilrk/MusicCaptioning/MusicCaptioning/configs/resnet.yaml")
+parser.add_argument("--config", default="/home/jupyter/music/configs/resnet.yaml")
+
+def set_syspath():
+    sys.path.append(args.sys_path)
+    sys.path.append(args.model_lib_path)
+    print("Current sys.path settings:")
+    print(sys.path)
+    return
 
 def run_vision_transformer():
     """
@@ -39,12 +41,20 @@ def run_resnet():
     https://stackoverflow.com/questions/52796121/how-to-get-the-output-from-a-specific-layer-from-a-pytorch-model)
 
     """
-
+    from models.clip import BaseClip
+    from torch.utils.data.dataloader import DataLoader
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset
+    import torch.optim 
+    from tensorboard_logger import configure, log_value
 
     model = BaseClip(temp=1)
    
+    # Use the GPU if we can
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
+    
+    using_cuda = torch.cuda.is_available()
+    print(f"Running on CUDA: {using_cuda}")
 
 
     epochs = args.epochs
@@ -53,8 +63,7 @@ def run_resnet():
         optimizer, mode="min", patience=1.0, factor=0.8)
 
 
-    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split, vocab_file = args.vocab_file)
-    # dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
 
     # Create train and validation dataloaders
     train_size = int(0.8 * len(dataset))
@@ -78,7 +87,6 @@ def run_resnet():
         for (idx,batch) in enumerate(train_dataloader):
 
             # Send to device
-            # batch = {k: v.to(device) for k, v in batch.items()}
             batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
             
             batch_loss, audio_encoders, text_encoders = model.forward(batch)
@@ -95,14 +103,14 @@ def run_resnet():
         log_value('train_loss', train_total_loss/len(train_dataloader), e)
         log_value('learning_rate', optimizer.param_groups[0]['lr'], e)
 
-
         save_filename = os.path.join(args.save_dir, 'model_{}.pth'.format(e))
 
-        model.eval()    
+        model.eval()
         val_total_loss = 0
         
         # Validation
-        for (idx,batch) in val_dataloader:
+        for (idx,batch) in enumerate(val_dataloader):
+            batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
             batch_loss, _, __ = model.forward(batch)
             val_total_loss += batch_loss.item()
 
@@ -144,9 +152,9 @@ def main():
     for key in config:
         for k, v in config[key].items():
             setattr(args, k, v)
-
-
-    # Get the dataset
+    
+    # Setting the sys.path variable so we can find our models' Python modules
+    set_syspath()
 
     # Make predictions using the appropriate method for the selected model
     if args.model == "ViT":
