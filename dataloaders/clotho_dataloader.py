@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/home/nikhilrk/MusicCaptioning/MusicCaptioning/models/')
+sys.path.append('/home/nikhilrk/MusicCaptioning/MusicCaptioning/')
 
 import torch 
 from torch.utils.data.dataloader import DataLoader
@@ -7,6 +7,8 @@ from torch.utils.data import Dataset
 import os
 from transformers import RobertaTokenizer
 import numpy as np
+import models.text_encoder as text_encoder
+import models.audio_encoders as audio_encoders
 
 
 
@@ -19,7 +21,7 @@ vocab_file: Path to the vocab file to use for encoding the captions (Optional)
 """
 
 class AudioCaptioningDataset(Dataset):
-    def __init__(self, data_dir, split, tokenizer = 'roberta-base', vocab_file = None):
+    def __init__(self, data_dir, split, tokenizer = 'roberta-base', vocab_file = None, audio_encoder='resnet50'):
         
         SPLIT_PREFIX = f'clotho_dataset_{split}'
         self.data_dir = os.path.join(data_dir, SPLIT_PREFIX)
@@ -32,6 +34,9 @@ class AudioCaptioningDataset(Dataset):
 
         # Load word map
         self.word_map = np.load(vocab_file, allow_pickle = True)
+
+        self.text_encoder = text_encoder.TextEncoder()
+
 
 
     def __len__(self):
@@ -70,8 +75,15 @@ class AudioCaptioningDataset(Dataset):
         
         # Stack tensor to make it 3 channel
         spec = torch.stack([spec, spec, spec], dim = 0)
+        
+        audio_features = audio_encoders.get_audio_feature_vector(self.audio_encoder, spec[ :, :, :], self.layer_dict)        
+        text_features = self.text_encoder(
+            input_ids=input_ids, attention_mask=attention_mask)
 
-        return spec, input_ids, attention_mask 
+        
+
+
+        return audio_features, text_features
 
 
 
