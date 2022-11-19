@@ -5,9 +5,9 @@ system_settings:
     model_lib_path: '/home/jupyter/music/models/'
 
 hyperparameters:
-    split: 'dev'
     epochs: 100
     batch_size: 16
+    random_seed: 7643
 
 network:
     model: ResNet
