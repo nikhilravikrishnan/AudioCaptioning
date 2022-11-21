@@ -147,6 +147,33 @@ class PANNClip(nn.Module):
         text_embeddings = self.text_projection(text_features)
         return audio_embeddings, text_embeddings
 
+class ProjectionClip(nn.Module):
+    """
+    Use with a dataloader that includes pretrained embeddings from another CLIP model.
+    """
+    def __init__(
+        self,
+        image_embedding_size,
+        text_embedding_size
+    ):
+        super().__init__()
+        self.audio_projection = ProjectionHead(embedding_dim=image_embedding_size)
+        self.text_projection = ProjectionHead(embedding_dim=text_embedding_size)
+    
+    def forward(self, batch):
+        loss = InfoNCE()
+
+        audio_input = batch[0] # Don't know what these will be yet :)
+        text_input = batch[1]
+
+        audio_embeddings = self.audio_projection(audio_input)
+        text_embeddings = self.text_projection(text_input)
+
+        batch_loss = loss.forward(text_embeddings, audio_embeddings)
+
+        return batch_loss, audio_embeddings, text_embeddings
+
+
 class ProjectionHead(nn.Module):
     def __init__(
         self,
