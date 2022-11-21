@@ -53,7 +53,7 @@ def eval_model_embeddings(model, dataLoader, metric_name: str, text_query: str, 
 
     return ret
 
-def mean_reciprocal_rank(model, audio_embeddings, caption_embeddings):
+def mean_reciprocal_rank(audio_embeddings, caption_embeddings):
     """
     This function will implement the mean reciprocal rank function.
     input:  - model
@@ -70,7 +70,7 @@ def mean_reciprocal_rank(model, audio_embeddings, caption_embeddings):
 
 # Implement mean reciprocal rank metric for evaluation
 
-def mean_avg_precision_at_k(model, audio_embeddings, caption_embeddings, k=10):
+def mean_avg_precision_at_k(audio_embeddings, caption_embeddings, k=10):
     """
     This function will implement the mean reciprocal rank function.
     input:  - model
@@ -81,8 +81,11 @@ def mean_avg_precision_at_k(model, audio_embeddings, caption_embeddings, k=10):
     
     """
     ret = None
-    audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
-    caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
+
+    # Convert audio embeddings to float32
+
+    audio_embeddings = F.normalize(audio_embeddings.float(), p=2, dim=-1)
+    caption_embeddings = F.normalize(caption_embeddings.float(), p=2, dim=-1)
     cosine_similarity = caption_embeddings @ audio_embeddings.T
 
     # Find unique audio embeddings
@@ -101,7 +104,7 @@ def mean_avg_precision_at_k(model, audio_embeddings, caption_embeddings, k=10):
                 cosine_similarity_mask[unique_audio_embedding_indices[i][k], unique_audio_embedding_indices[i][j]] = 1
 
     # Sort cosine similarity in descending order row wise and get the indices
-    cosine_similarity_sorted, cosine_similarity_sorted_indices = torch.sort(cosine_similarity, dim=1, descending=True)
+    cosine_similarity_sorted, cosine_similarity_sorted_indices = torch.sort(cosine_similarity, dim=-1, descending=True)
     # Sort cosine similarity mask row wise using the indices from above
     cosine_similarity_mask_sorted = cosine_similarity_mask[torch.arange(cosine_similarity_mask.shape[0]).unsqueeze(1), cosine_similarity_sorted_indices]
     # Sum over the first k columns of the sorted cosine similarity mask and divide by k
@@ -110,7 +113,7 @@ def mean_avg_precision_at_k(model, audio_embeddings, caption_embeddings, k=10):
     return ret
 
 
-def mean_recall_at_k(model, audio_embeddings, caption_embeddings, k=10):
+def mean_recall_at_k(audio_embeddings, caption_embeddings, k=10):
     """
     This function will implement the mean reciprocal rank function.
     input:  - model
@@ -120,7 +123,6 @@ def mean_recall_at_k(model, audio_embeddings, caption_embeddings, k=10):
     output: - recall_at_k: Scalar.
     
     """
-    ret = None
     
     ret = None
     audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
@@ -150,3 +152,15 @@ def mean_recall_at_k(model, audio_embeddings, caption_embeddings, k=10):
     ret = (cosine_similarity_mask_sorted[:, :k].sum(dim=1) / cosine_similarity_mask.sum(dim=1)).mean().item()
 
     return ret
+
+
+
+
+# Main function
+if __name__ == "__main__":
+
+    # Test case for mean reciprocal rank
+    audio_embeddings = torch.tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [10, 20, 30], [1111, 2222, 3333], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3]])
+    caption_embeddings = torch.tensor([[1, 2, 3], [4, 2, 3], [6, 2, 3], [7, 2, 3], [1, 2, 3], [1, 5, 3], [1, 27, 3], [1, 2, 3], [1, 2, 30], [1, 20, 3]])
+
+    print(mean_avg_precision_at_k(audio_embeddings, caption_embeddings, k=10))
