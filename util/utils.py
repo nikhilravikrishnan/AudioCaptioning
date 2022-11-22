@@ -66,6 +66,9 @@ def mean_reciprocal_rank(audio_embeddings, caption_embeddings):
     
     audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
     caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
+    # Each row in the cosine similarity matrix will be for a given audio embedding
+    # With each column being a similarity score between that audio embedding and the caption embedding
+    # at that index
     cosine_similarity = caption_embeddings @ audio_embeddings.T
 
     return ((1/(torch.argmax(cosine_similarity, dim=1)+1)).sum() / cosine_similarity.shape[0]).item()
@@ -82,6 +85,8 @@ def mean_avg_precision_at_k(audio_embeddings, caption_embeddings, k=10):
     output: - mean_avg_precision_at_k: Scalar.
     
     """
+    # The way this is done right now tests the model's ability to retrieve
+    # the correct captions from audio
     ret = None
     audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
     caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
@@ -126,11 +131,15 @@ def mean_recall_at_k(audio_embeddings, caption_embeddings, k=10):
     output: - recall_at_k: Scalar.
     
     """
+    # The way this is done right now tests the model's ability to retrieve
+    # the correct captions from audio
     ret = None
-    
-    ret = None
+
     audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
     caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
+    # Each row in the cosine similarity matrix will be for a given audio embedding
+    # With each column being a similarity score between that audio embedding and the caption embedding
+    # at that index
     cosine_similarity = audio_embeddings @ caption_embeddings.T
 
     # Find unique audio embeddings
@@ -147,7 +156,6 @@ def mean_recall_at_k(audio_embeddings, caption_embeddings, k=10):
             for h in range(j, len(unique_audio_embedding_indices[i])):
                 cosine_similarity_mask[unique_audio_embedding_indices[i][j], unique_audio_embedding_indices[i][h]] = 1
                 cosine_similarity_mask[unique_audio_embedding_indices[i][h], unique_audio_embedding_indices[i][j]] = 1
-
     # Sort cosine similarity in descending order row wise and get the indices
     cosine_similarity_sorted, cosine_similarity_sorted_indices = torch.sort(cosine_similarity, dim=1, descending=True)
     # Sort cosine similarity mask row wise using the indices from above
