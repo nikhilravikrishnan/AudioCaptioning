@@ -15,20 +15,6 @@ def set_syspath():
     print(sys.path)
     return
 
-def run_vision_transformer():
-    """
-    Make predictions on the dataset using a Vision Transformer model on Mel-Spectrogram image representations
-    of input audio.
-
-    See the original paper here:
-    https://arxiv.org/pdf/2010.11929.pdf
-
-    The implementation used comes from the HuggingFace transformers library and does not include a classification
-    head by default. See their documentation here:
-    https://huggingface.co/docs/transformers/model_doc/vit#vision-transformer-vit
-    """
-    return
-
 def train():
     """
     Make predictions on the dataset using a ResNet-50 model on Mel-Spectrogram image representations
@@ -48,7 +34,9 @@ def train():
     import torch.optim 
     from tensorboard_logger import configure, log_value
 
-    model = load_model()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = load_model(device=device)
     
     # Setting the random seed for reproducibility if needed
     if args.random_seed is not None:
@@ -188,7 +176,7 @@ def evaluate(model, mode="eval"):
 
     return metrics
 
-def load_model(state_dict=None):
+def load_model(device, state_dict=None):
     """
     Load a specified model with newly initialized weights or with a model
     state loaded from a state dict at the specified file path.
@@ -196,7 +184,6 @@ def load_model(state_dict=None):
     from models.clip import BaseClip, ViTClip
 
     # Use the GPU if we can
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = None
 
