@@ -10,9 +10,9 @@ def load_pretrained_img_model(model, device, checkpoint_path):
 test_audio = torch.Tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9]])
 test_captions = torch.Tensor([[1,2,3], [4,5,6], [1,2,3], [1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9]])
 
-def eval_model_embeddings(model, dataLoader, metric_name: str, text_query: str,  **kwargs):
+def eval_model_embeddings(model, dataLoader, metric_name: str,  **kwargs):
     """
-    This function will implement the mean reciprocal rank function.
+    Obtain the evaluation metric of the specified type from the given model
     input:  - model: CLIP model
             - metric_name: ['MRR', 'MAP@K', 'R@K']
     output: - metric specified
@@ -39,19 +39,16 @@ def eval_model_embeddings(model, dataLoader, metric_name: str, text_query: str, 
         ret = mean_reciprocal_rank(audio_embeddings, text_embeddings)
     
     if metric_name == 'MAP@K':
-        if 'k' in kwargs:
+        if 'k' not in kwargs:
             raise ValueError("Needs K parameter.")
 
         ret = mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
 
     if metric_name == 'R@K':
-        if 'k' in kwargs:
+        if 'k' not in kwargs:
             raise ValueError("Needs K parameter.")
 
         ret = mean_reciprocal_rank(audio_embeddings, text_embeddings, k = kwargs['k'])
-
-    if metric_name == 'None':
-        raise NotImplementedError
 
     return ret
 

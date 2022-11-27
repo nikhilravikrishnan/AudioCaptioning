@@ -1,8 +1,9 @@
 system_settings:
     data_dir: '/home/jupyter/data/'
     save_dir: '/home/jupyter/checkpoints/ResNet'
-    sys_path: '/home/jupyter/music'
+    sys_path: '/home/jupyter/music/'
     model_lib_path: '/home/jupyter/music/models/'
+    metrics_path: '/home/jupyter/music/metrics/'
 
 hyperparameters:
     split: 'dev'

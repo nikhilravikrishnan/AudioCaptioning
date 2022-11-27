@@ -48,18 +48,7 @@ def train():
     import torch.optim 
     from tensorboard_logger import configure, log_value
 
-    # Use the GPU if we can
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
-    model = None
-    if args.model == "ResNet":
-        model = BaseClip(device=device)
-    elif args.model == "ViT":
-        model = ViTClip(device=device)
-    else:
-        raise NotImplemented
-    
-    model = model.to(device)
+    model = load_model()
     
     # Setting the random seed for reproducibility if needed
     if args.random_seed is not None:
@@ -152,20 +141,77 @@ def train():
             print('Saved as %s' % save_filename)  
             min_val_loss = val_total_loss
 
+    metrics = evaluate(model, "train")
+    metrics_fp = model_dir + "/train_metrics.txt"
+
+    with open(metrics_fp, "w+") as f:
+        for k in metrics.keys:
+            f.write(k + ": " + f"{metrics[k]}\n")
+
     return
 
-def run_pann():
-    """
-    Make predictions on the dataset using a Pretrained Audio Neural Network
-    (a CNN pretrained for audio classification using spectrogram images)
+def evaluate(model, mode="eval"):
+    from torch.utils.data.dataloader import DataLoader
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset
+    from util.utils import eval_model_embeddings
+    
+    # Use the GPU if we can
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    print(f"Using device {device} for model evaluation.")
+    
+    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
+    metrics = {}
 
-    See the original paper here:
-    https://arxiv.org/pdf/1912.10211.pdf
+    if mode == "eval":
+        dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+    
+        metrics["mrr"] = eval_model_embeddings(model, dataloader, "MRR")
+        metrics["map@5"] = eval_model_embeddings(model, dataloader, "MAP@K", k=5)
+        metrics["r@5"] = eval_model_embeddings(model, dataloader, "R@K", k=5)
 
-    And GitHub repo here:
-    https://github.com/qiuqiangkong/audioset_tagging_cnn
+    if mode == "train":
+        train_size = int(0.8 * len(dataset))
+        val_size = len(dataset) - train_size
+        
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
+        val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+
+        metrics["train_mrr"] = eval_model_embeddings(model, train_dataloader, "MRR")
+        metrics["train_map@5"] = eval_model_embeddings(model, train_dataloader, "MAP@K", k=5)
+        metrics["train_r@5"] = eval_model_embeddings(model, train_dataloader, "R@K", k=5)
+
+        metrics["val_mrr"] = eval_model_embeddings(model, val_dataloader, "MRR")
+        metrics["val_map@5"] = eval_model_embeddings(model, val_dataloader, "MAP@K", k=5)
+        metrics["val_r@5"] = eval_model_embeddings(model, val_dataloader, "R@K", k=5)
+
+    return metrics
+
+def load_model(state_dict=None):
     """
-    return
+    Load a specified model with newly initialized weights or with a model
+    state loaded from a state dict at the specified file path.
+    """
+    from models.clip import BaseClip, ViTClip
+
+    # Use the GPU if we can
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = None
+
+    if args.model == "ResNet":
+        model = BaseClip(device=device)
+    elif args.model == "ViT":
+        model = ViTClip(device=device)
+    else:
+        raise NotImplemented
+
+    if state_dict != None:
+        model.load_state_dict(torch.load(state_dict))
+
+    return model
+
 
 def main():
     # Use a config file to make sure we perform the correct experimental setup
@@ -182,7 +228,22 @@ def main():
     set_syspath()
 
     # Make predictions using the appropriate method for the selected model
-    train()
+    if args.mode == "train":
+        train()
+    
+    if args.mode == "eval":
+
+        model = load_model(args.model_fp)
+
+        metrics = evaluate(model, mode="eval")
+
+        metrics_fp = args.save_dir + "/eval_metrics.txt"
+
+        with open(metrics_fp, "w+") as f:
+            for k in metrics.keys:
+                f.write(k + ": " + f"{metrics[k]}\n")
+    
+    return
         
 
 if __name__ == "__main__":
