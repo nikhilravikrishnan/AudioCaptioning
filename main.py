@@ -155,9 +155,15 @@ def evaluate(model, mode="eval"):
     if mode == "eval":
         dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
     
+        print("calculating mrr")
         metrics["mrr"] = eval_model_embeddings(model, dataloader, "MRR")
+        print(metrics)
+        print("calculating map")
         metrics["map@5"] = eval_model_embeddings(model, dataloader, "MAP@K", k=5)
+        print(metrics)
+        print("calculating recall")
         metrics["r@5"] = eval_model_embeddings(model, dataloader, "R@K", k=5)
+        print(metrics)
 
     if mode == "train":
         train_size = int(0.8 * len(dataset))
@@ -205,7 +211,7 @@ def main():
     # Use a config file to make sure we perform the correct experimental setup
     global args
     args = parser.parse_args()
-    with open(args.config) as f:
+    with open("/home/christian/GaTech/DL/MusicCaptioning/configs/resnet_eval.yaml") as f:
         config = yaml.load(f, Loader=yaml.Loader)
     
     for key in config:
@@ -225,10 +231,12 @@ def main():
 
         metrics = evaluate(model, mode="eval")
 
+        print(metrics)
+
         metrics_fp = args.save_dir + "/eval_metrics.txt"
 
         with open(metrics_fp, "w+") as f:
-            for k in metrics.keys:
+            for k in metrics.keys():
                 f.write(k + ": " + f"{metrics[k]}\n")
     
     return
