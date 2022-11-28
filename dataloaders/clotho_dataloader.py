@@ -32,12 +32,16 @@ def get_data_from_numpy(data_dir, vocab_file = None, audio_encoder:str = None, l
         cnn = vit_b_16(ViT_B_16_Weights.IMAGENET1K_SWAG_E2E_V1)
     elif audio_encoder == "Cnn14":
         # cnn = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2) # audio_encoder = audio_encoders.Cnn14()
-        audio_encoder = torch.load("/home/nikhilrk/MusicCaptioning/MusicCaptioning/models/pretrained_weights/Cnn14_mAP=0.431.pth")
+        saved_model = torch.load("/home/nikhilrk/MusicCaptioning/MusicCaptioning/models/pretrained_weights/Cnn14_mAP=0.431.pth")
 
         # Remove keys 'spectrogram_extractor.stft.conv_real.weight', 'spectrogram_extractor.stft.conv_imag.weight', 'logmel_extractor.melW' from the saved model
-        audio_encoder['model'].pop('spectrogram_extractor.stft.conv_real.weight')
-        audio_encoder['model'].pop('spectrogram_extractor.stft.conv_imag.weight')
-        audio_encoder['model'].pop('logmel_extractor.melW')
+        saved_model['model'].pop('spectrogram_extractor.stft.conv_real.weight')
+        saved_model['model'].pop('spectrogram_extractor.stft.conv_imag.weight')
+        saved_model['model'].pop('logmel_extractor.melW')
+
+        # Load the model
+        cnn = audio_encoders.Cnn14()
+        cnn.load_state_dict(saved_model['model'])
 
     if vocab_file is not None:
         txt_encoder = text_encoder.TextEncoder()
@@ -52,6 +56,7 @@ def get_data_from_numpy(data_dir, vocab_file = None, audio_encoder:str = None, l
             spectrogram = np.zeros((spectrogram_length, 64))
             spectrogram[:item.features[0].shape[0], :item.features[0].shape[1]] = item.features[0]
             
+
             if audio_encoder == "ResNet50":
                 spectrogram = torch.from_numpy(spectrogram)
                 spectrogram = torch.stack([spectrogram, spectrogram, spectrogram], dim=0)
@@ -60,6 +65,8 @@ def get_data_from_numpy(data_dir, vocab_file = None, audio_encoder:str = None, l
                 spectrogram = audio_encoders.get_vit_feature_vector(cnn, torch.from_numpy(spectrogram), layer_dict)
             elif audio_encoder == "Cnn14":
                 spectrogram =  audio_encoders.get_audio_feature_vector(cnn, torch.from_numpy(spectrogram), layer_dict)
+            
+
 
             spectrograms.append(spectrogram.detach().numpy())
 
@@ -70,7 +77,7 @@ def get_data_from_numpy(data_dir, vocab_file = None, audio_encoder:str = None, l
             tokenizer_output  = tokenizer(caption, return_tensors = 'pt', padding = 'max_length', max_length = 30)
             caption = txt_encoder(input_ids=tokenizer_output['input_ids'], attention_mask=tokenizer_output['attention_mask'])
             captions.append(caption.detach().numpy())
-            
+          
             
     # Concatenate all the data
     spectrograms = np.concatenate(spectrograms, axis=0)
@@ -105,7 +112,7 @@ class AudioCaptioningDataset(Dataset):
         self.caption = caption
 
     def __len__(self):
-        return len(self.dataset)
+        return len(self.spectrogram)
 
     def __getitem__(self, idx):
         spectrogram = self.spectrogram[idx]
@@ -121,11 +128,13 @@ if __name__ == "__main__":
     train_dataset = AudioCaptioningDataset(data_dir = '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/', 
                                                 split='train/val',
                                                 vocab_file = '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/words_list.p', 
-                                                audio_encoder = 'ResNet50', 
-                                                layer_dict={"avgpool":"features"})
+                                                audio_encoder = 'Cnn14', 
+                                                layer_dict={"fc1":"features"})
+
+    
     
     # Save the dataset
-    save_path  = '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/train_dataset.pt'
+    save_path  = '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/train_cnn14_dataset_2.pt'
     torch.save(train_dataset, save_path)
     
 

@@ -8,6 +8,9 @@ from models.clip import BaseClip
 from transformers import ViTFeatureExtractor, ViTModel
 import torch.optim 
 from tensorboard_logger import configure, log_value
+import wandb
+
+wandb.init(project="my-test-project")
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
 parser.add_argument("--config", default="/home/nikhilrk/MusicCaptioning/MusicCaptioning/configs/resnet.yaml")
@@ -46,23 +49,29 @@ def run_resnet():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
-
     epochs = args.epochs
     optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
 
 
-    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split, vocab_file = args.vocab_file)
-    # dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+    dataset = torch.load('/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/train_cnn14_dataset_2.pt')
 
     # Create train and validation dataloaders
     train_size = int(0.8 * len(dataset))
     val_size = len(dataset) - train_size
     
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+
+    wandb.config = {
+        "model": 'PANN',
+        "learning_rate": 0.001,
+        "epochs": 100,
+        "batch_size": args.batch_size
+        }
 
     min_val_loss = float("inf")
 
@@ -71,15 +80,18 @@ def run_resnet():
     # Training and Validation
     
     for e in range(epochs):
+
+        print('Epoch:', e)
         
         # Training
         train_total_loss = 0
         model.train()
-        for (idx,batch) in enumerate(train_dataloader):
+        for i, (audio, text) in enumerate(train_dataloader):
 
             # Send to device
             # batch = {k: v.to(device) for k, v in batch.items()}
-            batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
+            batch = (audio.to(device), text.to(device))
+
             
             batch_loss, audio_encoders, text_encoders = model.forward(batch)
             optimizer.zero_grad()
@@ -90,19 +102,23 @@ def run_resnet():
         
         
         print('Training Loss:', train_total_loss/len(train_dataloader))
-        print('Epoch:', e)
+        
 
         log_value('train_loss', train_total_loss/len(train_dataloader), e)
         log_value('learning_rate', optimizer.param_groups[0]['lr'], e)
+        
+        wandb.log({"training loss": train_total_loss/len(train_dataloader)})
 
 
-        save_filename = os.path.join(args.save_dir, 'model_{}.pth'.format(e))
+        save_filename = os.path.join(args.save_dir, 'model_{}_PANN.pth'.format(e))
 
         model.eval()    
         val_total_loss = 0
         
         # Validation
-        for (idx,batch) in val_dataloader:
+        for i, (audio,text) in enumerate(val_dataloader):
+            # Send to device
+            batch = (audio.to(device), text.to(device))
             batch_loss, _, __ = model.forward(batch)
             val_total_loss += batch_loss.item()
 
@@ -110,6 +126,8 @@ def run_resnet():
 
         log_value('val_loss', val_total_loss/len(val_dataloader), e)
         log_value('learning_rate', optimizer.param_groups[0]['lr'], e)
+        
+        wandb.log({"validation loss": val_total_loss/len(val_dataloader)})
 
         if val_total_loss < min_val_loss:
             print("Saving...")
