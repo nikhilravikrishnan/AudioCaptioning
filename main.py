@@ -139,7 +139,7 @@ def train():
 
     return
 
-def evaluate(model, mode="eval"):
+def evaluate(model, mode="eval", num_batches=8):
     from torch.utils.data.dataloader import DataLoader
     from dataloaders.clotho_dataloader import AudioCaptioningDataset
     from util.utils import eval_model_embeddings
@@ -150,38 +150,41 @@ def evaluate(model, mode="eval"):
     print(f"Using device {device} for model evaluation.")
     
     dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
-    metrics = {}
+    all_batch_metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
+    print(len(dataset))
+    dataset_ind = [i for i in range(0, len(dataset), int(len(dataset)/num_batches))] + [len(dataset)]
+    print(dataset_ind)
 
     if mode == "eval":
-        dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=False)
+        for i, item in enumerate(dataset_ind):
+            if i == 0:
+                continue
+            dataset_sub = torch.utils.data.Subset(dataset, range(dataset_ind[i-1], dataset_ind[i]))
+
+            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+            
+            print(f"Calculating metrics for items {dataset_ind[i-1]} - {dataset_ind[i]}...")
+            batch_metrics = eval_model_embeddings(model, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+            for k in batch_metrics.keys():
+                all_batch_metrics[k].append(batch_metrics[k])
     
-        print("calculating mrr")
-        metrics["mrr"] = eval_model_embeddings(model, dataloader, "MRR")
-        print(metrics)
-        print("calculating map")
-        metrics["map@5"] = eval_model_embeddings(model, dataloader, "MAP@K", k=5)
-        print(metrics)
-        print("calculating recall")
-        metrics["r@5"] = eval_model_embeddings(model, dataloader, "R@K", k=5)
-        print(metrics)
-
-    if mode == "train":
-        train_size = int(0.8 * len(dataset))
-        val_size = len(dataset) - train_size
+    #if mode == "train":
+    #    train_size = int(0.8 * len(dataset))
+    #    val_size = len(dataset) - train_size
         
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-        train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
-        val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+    #    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    #    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
+    #    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
 
-        metrics["train_mrr"] = eval_model_embeddings(model, train_dataloader, "MRR")
-        metrics["train_map@5"] = eval_model_embeddings(model, train_dataloader, "MAP@K", k=5)
-        metrics["train_r@5"] = eval_model_embeddings(model, train_dataloader, "R@K", k=5)
+    #    metrics["train_mrr"] = eval_model_embeddings(model, train_dataloader, "MRR")
+    #    metrics["train_map@5"] = eval_model_embeddings(model, train_dataloader, "MAP@K", k=5)
+    #    metrics["train_r@5"] = eval_model_embeddings(model, train_dataloader, "R@K", k=5)
 
-        metrics["val_mrr"] = eval_model_embeddings(model, val_dataloader, "MRR")
-        metrics["val_map@5"] = eval_model_embeddings(model, val_dataloader, "MAP@K", k=5)
-        metrics["val_r@5"] = eval_model_embeddings(model, val_dataloader, "R@K", k=5)
+    #    metrics["val_mrr"] = eval_model_embeddings(model, val_dataloader, "MRR")
+    #    metrics["val_map@5"] = eval_model_embeddings(model, val_dataloader, "MAP@K", k=5)
+    #    metrics["val_r@5"] = eval_model_embeddings(model, val_dataloader, "R@K", k=5)
 
-    return metrics
+    return all_batch_metrics
 
 def load_model(device, state_dict=None):
     """
@@ -206,7 +209,6 @@ def load_model(device, state_dict=None):
 
     return model
 
-
 def main():
     # Use a config file to make sure we perform the correct experimental setup
     global args
@@ -222,22 +224,22 @@ def main():
     set_syspath()
 
     # Make predictions using the appropriate method for the selected model
-    if args.mode == "train":
-        train()
+    #if args.mode == "train":
+    #    train()
     
-    if args.mode == "eval":
+    #if args.mode == "eval":
 
-        model = load_model(args.model_fp)
+    model = load_model(args.model_fp)
 
-        metrics = evaluate(model, mode="eval")
+    metrics = evaluate(model, mode="eval")
 
-        print(metrics)
+    print(metrics)
 
-        metrics_fp = args.save_dir + "/eval_metrics.txt"
+    metrics_fp = args.save_dir + "/eval_metrics.txt"
 
-        with open(metrics_fp, "w+") as f:
-            for k in metrics.keys():
-                f.write(k + ": " + f"{metrics[k]}\n")
+    with open(metrics_fp, "w+") as f:
+        for k in metrics.keys():
+            f.write(k + ": " + f"{metrics[k]}\n")
     
     return
         

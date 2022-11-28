@@ -10,49 +10,79 @@ def load_pretrained_img_model(model, device, checkpoint_path):
 test_audio = torch.Tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9]])
 test_captions = torch.Tensor([[1,2,3], [4,5,6], [1,2,3], [1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9]])
 
-def eval_model_embeddings(model, dataLoader, metric_name: str,  **kwargs):
+def eval_model_embeddings(model, dataLoader, metric_name: list, **kwargs):
     """
     Obtain the evaluation metric of the specified type from the given model
     input:  - model: CLIP model
-            - metric_name: ['MRR', 'MAP@K', 'R@K']
+            - metric_name: a list containing 1 or more of the following: ['MRR', 'MAP@K', 'R@K']
     output: - metric specified
     """
-    ret = None
-    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
     audio_embedding_list = []
     text_embedding_list = []
 
-    #print(len(dataLoader))
-
+    print("Generating embeddings...")
     for (idx, batch) in enumerate(dataLoader):
         batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
         _, audio_encoders, text_encoders = model.forward(batch)
-        audio_embedding_list.append([audio_encoders])
-        text_embedding_list.append([text_encoders])
-    
+        audio_embedding_list.append(audio_encoders)
+        text_embedding_list.append(text_encoders)
+
     # Concatenate all the embeddings
     audio_embeddings = torch.cat(audio_embedding_list, dim = 0)
     text_embeddings = torch.cat(text_embedding_list, dim = 0)
 
-    if metric_name == 'MRR':
-        ret = mean_reciprocal_rank(audio_embeddings, text_embeddings)
+    metrics = {}
+
+    if 'MRR' in metric_name:
+        print("Calculating MRR...")
+        metrics["MRR"] = mean_reciprocal_rank(audio_embeddings, text_embeddings)
     
-    if metric_name == 'MAP@K':
+    if 'MAP@K' in metric_name:
         if 'k' not in kwargs:
             raise ValueError("Needs K parameter.")
+        print("Calculating MAP@K...")
+        metrics["MAP@K"] = mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
 
-        ret = mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
-
-    if metric_name == 'R@K':
+    if 'R@K' in metric_name:
         if 'k' not in kwargs:
             raise ValueError("Needs K parameter.")
+        print("Calculating R@K...")
+        metrics["R@K"] = mean_recall_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
 
-        ret = mean_reciprocal_rank(audio_embeddings, text_embeddings, k = kwargs['k'])
+    return metrics
 
-    return ret
+def evaluate_precalcuated_embeddings(audio_embeddings, text_embeddings, metric_name: list, num_batches=8, **kwargs):
+    metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
+    
+    # Start and stop indicies to slice the tensors into batches that fit into memory
+    batches = [i for i in range(0, audio_embeddings.shape[0], int(audio_embeddings.shape[0]/num_batches))] + [audio_embeddings.shape[0]]
+
+    # Calculate each of the requested metrics for each batch
+    for b in range(len(batches)):
+        start = batches[b]
+        end = batches[b+1]
+
+        if 'MRR' in metric_name:
+            print("Calculating MRR...")
+            metrics["MRR"].append(mean_reciprocal_rank(audio_embeddings[start:end, :], text_embeddings[start:end, :]))
+    
+        if 'MAP@K' in metric_name:
+            if 'k' not in kwargs:
+                raise ValueError("Needs K parameter.")
+            print("Calculating MAP@K...")
+            metrics["MAP@K"].append(mean_avg_precision_at_k(audio_embeddings[start:end, :], text_embeddings[start:end, :], k = kwargs['k']))
+
+        if 'R@K' in metric_name:
+            if 'k' not in kwargs:
+                raise ValueError("Needs K parameter.")
+            print("Calculating R@K...")
+            metrics["R@K"].append(mean_recall_at_k(audio_embeddings[start:end, :], text_embeddings[start:end, :], k = kwargs['k']))
+
+    # Return them as a list - we can average them later if desired
+    return metrics
 
 def mean_reciprocal_rank(audio_embeddings, caption_embeddings):
     """
