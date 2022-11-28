@@ -58,50 +58,41 @@ class BaseClip(nn.Module):
         temp,
         image_embedding_size=2048,
         text_embedding_size=768,
-        audio_encoder=resnet50(weights=ResNet50_Weights.IMAGENET1K_V2),
-        layer_dict={"avgpool":"features"},
-        vocab_file="/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/words_list.p"
     ):
         super().__init__()
-        self.audio_encoder = audio_encoder
-        self.text_encoder = text_encoder.TextEncoder()
+
         self.audio_projection = ProjectionHead(embedding_dim=image_embedding_size)
         self.text_projection = ProjectionHead(embedding_dim=text_embedding_size)
         self.temperature = temp
         self.audio_embeddings = None
         self.text_embeddings = None
-        self.layer_dict = layer_dict
-        self.vocab_file = vocab_file
-        self.word_map = np.load(self.vocab_file, allow_pickle=True)
 
     def forward(self, batch):
 
+
+
+        # Send to device
+        audio_embeddings = batch[0]
+        text_embeddings = batch[1]
+
+    
         loss = InfoNCE()
 
-
-        # Getting audio and text features
-        raw_audio_features = batch[0]
-        raw_ids = batch[1]
-        raw_mask = batch[2]
-
-        # Reshape raw_ids and raw_mask to (batch_size, seq_len)
-        raw_ids = raw_ids.reshape(-1, raw_ids.shape[-1])
-        raw_mask = raw_mask.reshape(-1, raw_mask.shape[-1])
         
-        processed_audio = []
-        with torch.no_grad():
-            for i in range(raw_audio_features.size()[0]):
-                audio_features = audio_encoders.get_audio_feature_vector(self.audio_encoder, raw_audio_features[i, :, :, :], self.layer_dict)
-                processed_audio.append(audio_features)
-        audio_stack = torch.stack(processed_audio)
+        # processed_audio = []
+        # with torch.no_grad():
+        #     for i in range(raw_audio_features.size()[0]):
+        #         audio_features = audio_encoders.get_audio_feature_vector(self.audio_encoder, raw_audio_features[i, :, :, :], self.layer_dict)
+        #         processed_audio.append(audio_features)
+        # audio_stack = torch.stack(processed_audio)
         
-        text_features = self.text_encoder(
-            input_ids=raw_ids, attention_mask=raw_mask
-        )
+        # text_features = self.text_encoder(
+        #     input_ids=raw_ids, attention_mask=raw_mask
+        # )
 
         # Getting audio and Text Embeddings (with same dimension)
-        audio_embeddings = self.audio_projection(audio_stack)
-        text_embeddings = self.text_projection(text_features)
+        audio_embeddings = self.audio_projection(audio_embeddings)
+        text_embeddings = self.text_projection(text_embeddings)
 
         batch_loss = loss.forward(text_embeddings, audio_embeddings)
 

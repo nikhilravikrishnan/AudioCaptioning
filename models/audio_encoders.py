@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.functional as F
+import torch.nn.functional as F
 import torchvision
 
 from torchvision.models.feature_extraction import create_feature_extractor
@@ -34,6 +34,35 @@ def get_audio_feature_vector(model: nn.Module, img_tensors: torch.Tensor, layer_
     out = model(img_tensors)
     features = out["features"]
     features = torch.reshape(features, (features.size()[0], features.size()[1]))
+    return features
+
+def get_vit_feature_vector(model: nn.Module, img_tensors: torch.Tensor, layer_dict={"encoder.layers.encoder_layer_11.mlp":"features"}):
+    """
+    Get feature vectors for the given audio (passed in as a spectrogram image) by returning the output
+    of the selected model at an intermediate layer.
+
+    For more info on create_feature_extractor, see the Torchvision documentation here:
+    http://pytorch.org/vision/main/generated/torchvision.models.feature_extraction.create_feature_extractor.html
+
+    Arguments
+    -----
+    model - A PyTorch nn.Module object
+    img_tensor - A batch of images stored as PyTorch tensors with dimensions (n, c, h, w)
+    layer_dict - A dictionary containing information about the desired intermediate layer output
+        Ex. {'avgpool': 'features'} to obtain the weights at ResNet's avgpool layer stored with the key "features"
+
+    Outputs
+    -----
+    feat_vec - A list of feature vectors for each of the requested layers as tuples in [("name", tensor)] format
+
+    """
+    features = []
+    model = create_feature_extractor(model, layer_dict)
+    img_tensors = img_tensors.unsqueeze(0)
+    model = model.double()
+    out = model(img_tensors)
+    features = out["features"]
+    features = features[:, 0, :]
     return features
 
 # Pretrained Audio Neural Networks
@@ -96,6 +125,41 @@ class ConvBlock(nn.Module):
         
         return x
 
+class ConvPreWavBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        
+        super(ConvPreWavBlock, self).__init__()
+        
+        self.conv1 = nn.Conv1d(in_channels=in_channels, 
+                              out_channels=out_channels,
+                              kernel_size=3, stride=1,
+                              padding=1, bias=False)
+                              
+        self.conv2 = nn.Conv1d(in_channels=out_channels, 
+                              out_channels=out_channels,
+                              kernel_size=3, stride=1, dilation=2, 
+                              padding=2, bias=False)
+                              
+        self.bn1 = nn.BatchNorm1d(out_channels)
+        self.bn2 = nn.BatchNorm1d(out_channels)
+
+        self.init_weight()
+        
+    def init_weight(self):
+        init_layer(self.conv1)
+        init_layer(self.conv2)
+        init_bn(self.bn1)
+        init_bn(self.bn2)
+
+        
+    def forward(self, input, pool_size):
+        
+        x = input
+        x = F.relu_(self.bn1(self.conv1(x)))
+        x = F.relu_(self.bn2(self.conv2(x)))
+        x = F.max_pool1d(x, kernel_size=pool_size)
+        
+        return x
 
 class Cnn14(nn.Module):
     def __init__(self, classes_num=527):
