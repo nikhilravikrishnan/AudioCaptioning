@@ -7,6 +7,7 @@ import datetime
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
 parser.add_argument("--config", default="/home/jupyter/music/configs/resnet.yaml")
+parser.add_argument("--mode", default="train")
 
 def set_syspath():
     sys.path.append(args.sys_path)

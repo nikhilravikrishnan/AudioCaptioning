@@ -25,7 +25,10 @@ def eval_model_embeddings(model, dataLoader, metric_name: str,  **kwargs):
     audio_embedding_list = []
     text_embedding_list = []
 
+    #print(len(dataLoader))
+
     for (idx, batch) in enumerate(dataLoader):
+        #print(idx)
         batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
         _, audio_encoders, text_encoders = model.forward(batch)
         audio_embedding_list.append([audio_encoders])
