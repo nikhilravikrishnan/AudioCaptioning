@@ -179,6 +179,7 @@ def evaluate(model, mode="eval", mean=True):
         for i in range(len(train_dataset_ind)):
             if i == 0:
                 continue
+            print(f"Calculating metrics for items {train_dataset_ind[i-1]} - {train_dataset_ind[i]}...")
             dataset_sub = torch.utils.data.Subset(train_dataset, range(train_dataset_ind[i-1], train_dataset_ind[i]))
 
             dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
@@ -188,9 +189,10 @@ def evaluate(model, mode="eval", mean=True):
                 all_batch_metrics["train_"+k].append(batch_metrics[k])
 
         print("Calculating validation set metrics...")
-        for i in range(len(train_dataset_ind)):
+        for i in range(len(val_dataset_ind)):
             if i == 0:
                 continue
+            print(f"Calculating metrics for items {val_dataset_ind[i-1]} - {val_dataset_ind[i]}...")
             dataset_sub = torch.utils.data.Subset(val_dataset, range(val_dataset_ind[i-1], val_dataset_ind[i]))
 
             dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
@@ -200,6 +202,7 @@ def evaluate(model, mode="eval", mean=True):
                 all_batch_metrics["val_"+k].append(batch_metrics[k])
 
     if mean == True:
+        print(all_batch_metrics)
         # Get the mean of all batches for each metric rather than the individual results of each batch
         for k in all_batch_metrics.keys():
             metric_mean = sum(all_batch_metrics[k]) / len(all_batch_metrics[k])
@@ -224,9 +227,12 @@ def load_model(device, state_dict=None):
         model = ViTClip(device=device)
     else:
         raise NotImplemented
-
+        
     if state_dict != None:
-        model.load_state_dict(torch.load(state_dict))
+        if device.type != "cuda":
+            model.load_state_dict(torch.load(state_dict, map_location=torch.device("cpu")))
+        else:
+            model.load_state_dict(torch.load(state_dict))
 
     return model
 
@@ -234,12 +240,14 @@ def main():
     # Use a config file to make sure we perform the correct experimental setup
     global args
     args = parser.parse_args()
-    with open("/home/christian/GaTech/DL/MusicCaptioning/configs/resnet_eval.yaml") as f:
+    with open(args.config) as f:
         config = yaml.load(f, Loader=yaml.Loader)
     
     for key in config:
         for k, v in config[key].items():
             setattr(args, k, v)
+
+    args.mode = "eval"
     
     # Setting the sys.path variable so we can find our models' Python modules
     set_syspath()
@@ -250,11 +258,11 @@ def main():
     
     if args.mode == "eval":
 
-        model = load_model(args.model_fp)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        metrics = evaluate(model, mode="train")
+        model = load_model(device, args.model_fp)
 
-        print(metrics)
+        metrics = evaluate(model, mode="eval")
 
         metrics_fp = args.save_dir + "/eval_metrics.txt"
 
