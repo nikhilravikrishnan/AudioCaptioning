@@ -10,7 +10,7 @@ def load_pretrained_img_model(model, device, checkpoint_path):
 test_audio = torch.Tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9]])
 test_captions = torch.Tensor([[1,2,3], [4,5,6], [1,2,3], [1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9]])
 
-def eval_model_embeddings(model, dataLoader, metric_name: list, **kwargs):
+def eval_model_embeddings(model, device, dataLoader, metric_name: list, **kwargs):
     """
     Obtain the evaluation metric of the specified type from the given model
     input:  - model: CLIP model
@@ -23,7 +23,7 @@ def eval_model_embeddings(model, dataLoader, metric_name: list, **kwargs):
     audio_embedding_list = []
     text_embedding_list = []
 
-    print("Generating embeddings...")
+    #print("Generating embeddings...")
     for (idx, batch) in enumerate(dataLoader):
         batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
         _, audio_encoders, text_encoders = model.forward(batch)
@@ -37,19 +37,19 @@ def eval_model_embeddings(model, dataLoader, metric_name: list, **kwargs):
     metrics = {}
 
     if 'MRR' in metric_name:
-        print("Calculating MRR...")
+        #print("Calculating MRR...")
         metrics["MRR"] = mean_reciprocal_rank(audio_embeddings, text_embeddings)
     
     if 'MAP@K' in metric_name:
         if 'k' not in kwargs:
             raise ValueError("Needs K parameter.")
-        print("Calculating MAP@K...")
+        #print("Calculating MAP@K...")
         metrics["MAP@K"] = mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
 
     if 'R@K' in metric_name:
         if 'k' not in kwargs:
             raise ValueError("Needs K parameter.")
-        print("Calculating R@K...")
+        #print("Calculating R@K...")
         metrics["R@K"] = mean_recall_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
 
     return metrics

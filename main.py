@@ -16,24 +16,23 @@ def set_syspath():
     print(sys.path)
     return
 
-def train():
+def train(get_metrics=False):
     """
-    Make predictions on the dataset using a ResNet-50 model on Mel-Spectrogram image representations
+    Make predictions on the dataset using the model specified using args.model on Mel-Spectrogram image representations
     of input audio.
 
-    The embedding for each image is made up of weights retrieved from the avgpool layer for that image after
-    a forward pass through the network. This is done using the "create_feature_extractor" method from torchvision,
-    but can also be done by setting a forward hook.
+    See the config_format.md file in the configs folder for more setting details.
 
-    (See this helpful post:
-    https://stackoverflow.com/questions/52796121/how-to-get-the-output-from-a-specific-layer-from-a-pytorch-model)
+    Parameters
+    ---
+    get_metrics: boolean
+        Whether to get metrics (MRR, Recall/Precision @ 5) each epoch of training
 
     """
     from models.clip import BaseClip, ViTClip
     from torch.utils.data.dataloader import DataLoader
     from dataloaders.clotho_dataloader import AudioCaptioningDataset
     import torch.optim 
-    from tensorboard_logger import configure, log_value
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -71,8 +70,6 @@ def train():
 
     min_val_loss = float("inf")
 
-    configure(model_dir + '/runs/', flush_secs=5)
-
     # Training and Validation
     print("Starting training!")
     
@@ -101,9 +98,6 @@ def train():
         print('Training Loss:', train_total_loss/len(train_dataloader))
         print('Epoch:', e)
 
-        log_value('train_loss', train_total_loss/len(train_dataloader), e)
-        log_value('learning_rate', optimizer.param_groups[0]['lr'], e)
-
         save_filename = model_dir + f"/model_{e}.pth"
 
         model.eval()
@@ -121,17 +115,20 @@ def train():
 
         print('Validation Loss:', val_total_loss/len(val_dataloader))  
 
-        log_value('val_loss', val_total_loss/len(val_dataloader), e)
-        log_value('learning_rate', optimizer.param_groups[0]['lr'], e)
-
         if val_total_loss < min_val_loss:
             print("Saving...")
             torch.save(model.state_dict(), save_filename)
             print('Saved as %s' % save_filename)  
             min_val_loss = val_total_loss
 
+        if get_metrics == True:
+            train_metrics = evaluate(model, "train")
+            print(f"Epoch {e} training metrics: ")
+            print(train_metrics)
+    
     metrics = evaluate(model, "train")
     metrics_fp = model_dir + "/train_metrics.txt"
+    print(f"Saving final training metrics to: {metrics_fp}")
 
     with open(metrics_fp, "w+") as f:
         for k in metrics.keys:
@@ -139,7 +136,7 @@ def train():
 
     return
 
-def evaluate(model, mode="eval", num_batches=8):
+def evaluate(model, mode="eval", mean=True):
     from torch.utils.data.dataloader import DataLoader
     from dataloaders.clotho_dataloader import AudioCaptioningDataset
     from util.utils import eval_model_embeddings
@@ -150,13 +147,12 @@ def evaluate(model, mode="eval", num_batches=8):
     print(f"Using device {device} for model evaluation.")
     
     dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
-    all_batch_metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
-    print(len(dataset))
-    dataset_ind = [i for i in range(0, len(dataset), int(len(dataset)/num_batches))] + [len(dataset)]
-    print(dataset_ind)
 
     if mode == "eval":
-        for i, item in enumerate(dataset_ind):
+        all_batch_metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
+        dataset_ind = [i for i in range(0, len(dataset), 100)] + [len(dataset)]
+        
+        for i in range(len(dataset_ind)):
             if i == 0:
                 continue
             dataset_sub = torch.utils.data.Subset(dataset, range(dataset_ind[i-1], dataset_ind[i]))
@@ -164,25 +160,50 @@ def evaluate(model, mode="eval", num_batches=8):
             dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
             
             print(f"Calculating metrics for items {dataset_ind[i-1]} - {dataset_ind[i]}...")
-            batch_metrics = eval_model_embeddings(model, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
             for k in batch_metrics.keys():
                 all_batch_metrics[k].append(batch_metrics[k])
     
-    #if mode == "train":
-    #    train_size = int(0.8 * len(dataset))
-    #    val_size = len(dataset) - train_size
+    if mode == "train":
+        train_size = int(0.8 * len(dataset))
+        val_size = len(dataset) - train_size
         
-    #    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-    #    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=False)
-    #    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False)
+        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+        train_dataset_ind = [i for i in range(0, len(train_dataset), 100)] + [len(train_dataset)]
+        val_dataset_ind = [i for i in range(0, len(val_dataset), 100)] + [len(val_dataset)]
 
-    #    metrics["train_mrr"] = eval_model_embeddings(model, train_dataloader, "MRR")
-    #    metrics["train_map@5"] = eval_model_embeddings(model, train_dataloader, "MAP@K", k=5)
-    #    metrics["train_r@5"] = eval_model_embeddings(model, train_dataloader, "R@K", k=5)
+        all_batch_metrics = {"train_MRR":[], "train_MAP@K":[], "train_R@K":[], 
+                            "val_MRR":[], "val_MAP@K":[], "val_R@K":[]}
 
-    #    metrics["val_mrr"] = eval_model_embeddings(model, val_dataloader, "MRR")
-    #    metrics["val_map@5"] = eval_model_embeddings(model, val_dataloader, "MAP@K", k=5)
-    #    metrics["val_r@5"] = eval_model_embeddings(model, val_dataloader, "R@K", k=5)
+        print("Calculating training set metrics...")
+        for i in range(len(train_dataset_ind)):
+            if i == 0:
+                continue
+            dataset_sub = torch.utils.data.Subset(train_dataset, range(train_dataset_ind[i-1], train_dataset_ind[i]))
+
+            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+            
+            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+            for k in batch_metrics.keys():
+                all_batch_metrics["train_"+k].append(batch_metrics[k])
+
+        print("Calculating validation set metrics...")
+        for i in range(len(train_dataset_ind)):
+            if i == 0:
+                continue
+            dataset_sub = torch.utils.data.Subset(val_dataset, range(val_dataset_ind[i-1], val_dataset_ind[i]))
+
+            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+            
+            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+            for k in batch_metrics.keys():
+                all_batch_metrics["val_"+k].append(batch_metrics[k])
+
+    if mean == True:
+        # Get the mean of all batches for each metric rather than the individual results of each batch
+        for k in all_batch_metrics.keys():
+            metric_mean = sum(all_batch_metrics[k]) / len(all_batch_metrics[k])
+            all_batch_metrics[k] = metric_mean
 
     return all_batch_metrics
 
@@ -224,22 +245,22 @@ def main():
     set_syspath()
 
     # Make predictions using the appropriate method for the selected model
-    #if args.mode == "train":
-    #    train()
+    if args.mode == "train":
+        train()
     
-    #if args.mode == "eval":
+    if args.mode == "eval":
 
-    model = load_model(args.model_fp)
+        model = load_model(args.model_fp)
 
-    metrics = evaluate(model, mode="eval")
+        metrics = evaluate(model, mode="train")
 
-    print(metrics)
+        print(metrics)
 
-    metrics_fp = args.save_dir + "/eval_metrics.txt"
+        metrics_fp = args.save_dir + "/eval_metrics.txt"
 
-    with open(metrics_fp, "w+") as f:
-        for k in metrics.keys():
-            f.write(k + ": " + f"{metrics[k]}\n")
+        with open(metrics_fp, "w+") as f:
+            for k in metrics.keys():
+                f.write(k + ": " + f"{metrics[k]}\n")
     
     return
         
