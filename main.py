@@ -130,6 +130,15 @@ def run_resnet():
     return
 
 def run_pann():
+
+    from models.clip import PANNClip
+    from torch.utils.data.dataloader import DataLoader
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset
+    import torch.optim 
+    import wandb
+
+
+
     """
     Make predictions on the dataset using a Pretrained Audio Neural Network
     (a CNN pretrained for audio classification using spectrogram images)
@@ -140,7 +149,85 @@ def run_pann():
     And GitHub repo here:
     https://github.com/qiuqiangkong/audioset_tagging_cnn
     """
+    model = PANNClip(temp=1)
+   
+    # Use the GPU if we can
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+    
+    using_cuda = torch.cuda.is_available()
+    print(f"Running on CUDA: {using_cuda}")
+
+
+    epochs = args.epochs
+    optimizer = torch.optim.Adam(model.parameters(), lr =1e-5, weight_decay=0.)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", patience=1.0, factor=0.8)
+
+
+    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
+
+    # Create train and validation dataloaders
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+
+    min_val_loss = float("inf")
+
+    
+
+    # Training and Validation
+    
+    for e in range(epochs):
+        
+        # Training
+        train_total_loss = 0
+        model.train()
+        for (idx,batch) in enumerate(train_dataloader):
+
+            # Send to device
+            batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
+            
+            batch_loss, audio_encoders, text_encoders = model.forward(batch)
+            optimizer.zero_grad()
+            batch_loss.backward()
+            optimizer.step()
+            lr_scheduler.step(metrics=batch_loss)
+            train_total_loss += batch_loss.item()
+        
+        
+        print('Training Loss:', train_total_loss/len(train_dataloader))
+        print('Epoch:', e)
+
+        
+
+        save_filename = os.path.join(args.save_dir, 'model_{}.pth'.format(e))
+
+        model.eval()
+        val_total_loss = 0
+        
+        # Validation
+        for (idx,batch) in enumerate(val_dataloader):
+            batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
+            batch_loss, _, __ = model.forward(batch)
+            val_total_loss += batch_loss.item()
+
+        print('Validation Loss:', val_total_loss/len(val_dataloader))  
+
+        
+        if val_total_loss < min_val_loss:
+            print("Saving...")
+            torch.save(model.state_dict(), save_filename)
+            print('Saved as %s' % save_filename)  
+            min_val_loss = val_total_loss
+
+        
+
     return
+
 
 def main():
     # Use a config file to make sure we perform the correct experimental setup
