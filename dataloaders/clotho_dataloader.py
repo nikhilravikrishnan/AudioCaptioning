@@ -1,91 +1,164 @@
 import torch 
+import torchaudio
+import numpy as np
 from torch.utils.data.dataloader import DataLoader
 from torch.utils.data import Dataset
-import os
+from torchvision.transforms import ToTensor, Compose
+from torchvision.models import resnet50, ResNet50_Weights, vit_b_16, ViT_B_16_Weights
 from transformers import RobertaTokenizer
-import numpy as np
+from tqdm import tqdm
+from niacin.augment import RandAugment
+from niacin.text import en
+import sys
+import os
+import models.audio_encoders
+import models.text_encoder
+import matplotlib.pyplot as plt
 
 
+def transform_spectrograms (spectrogram):
+
+  spectrogram_size = (64, (40*44100+1)//512)
+  spectrogram = torch.Tensor(spectrogram).T.unsqueeze(0)
+
+  t1 = torchaudio.transforms.TimeStretch(n_freq=64, fixed_rate = 1.8)
+  t2 = torchaudio.transforms.FrequencyMasking(freq_mask_param=8)
+  t3 = torchaudio.transforms.TimeMasking(time_mask_param=80)
+
+  spectrogram = torch.abs(t1(spectrogram))
+  spectrogram = t2(spectrogram)
+  spectrogram = t3(spectrogram)
+
+  ret = np.zeros(spectrogram_size)
+  ret[:spectrogram.size()[1], :spectrogram.size()[2]] = spectrogram
+
+  #plt.figure(figsize=(10, 4))
+  #plt.imshow(ret, aspect='auto', origin='lower')
+  #plt.colorbar()
+  #plt.title('Spectrogram')
+
+  return ret
+
+def transform_captions(caption):
+  
+  augmentor = RandAugment([
+    en.add_synonyms,
+    en.add_hypernyms,
+    en.add_hyponyms,
+    en.add_misspelling,
+    en.add_contractions,
+    en.add_fat_thumbs,
+    en.remove_articles,
+    en.remove_characters,
+    en.remove_contractions,
+    en.remove_punctuation
+    ], n=2, m=10, shuffle=False)
+  
+  for tx in augmentor:
+    caption = tx(caption)
+    
+  return caption
+
+
+def get_data_from_numpy(data_dir, vocab_file = None, audio_encoder:str = None, layer_dict= None):
+    
+    """ Iterate through files in data_dir and load npy files into a list
+        data_dir: directory containing the data
+        split: train, val, or test
+        tokenizer: tokenizer to use
+        vocab_file: path to vocab file
+        returns: tuple (encoded audio data , encoded text data)
+    """
+    # Load the data
+    spectrograms = []
+    captions = []
+    spectrogram_length = (40*44100+1)//512 # FROM CONFIG FILE
+
+    i = 0
+    for file in tqdm(os.listdir(data_dir)):
+    
+        if file.endswith(".npy"):
+            if i > 50:
+              break
+              
+            # Load the data item
+            item = np.load(os.path.join(data_dir, file), allow_pickle=True)
+
+            # Appending spectrogram
+            spectrograms.append(item.features[0])
+
+            # Cleaning caption
+            caption = item.caption[0][6:-6] # Remove <s> and </s> tokens      
+            captions.append(caption)
+            i+=1
+
+    return np.array(spectrograms), np.array(captions)
 
 # Dataloader that takes spectrogram and caption data to serve for training us
 """
-data_dir: Directory where the data is stored
-split: "dev" or "eva"
-tokenizer: Tokenizer to use for encoding the captions
-vocab_file: Path to the vocab file to use for encoding the captions (Optional)
+    data_dir: Directory where the data is stored
+    split: "dev" or "eva"
+    tokenizer: Tokenizer to use for encoding the captions
+    vocab_file: Path to the vocab file to use for encoding the captions (Optional)
 """
 
+
 class AudioCaptioningDataset(Dataset):
-    def __init__(self, data_dir, split, tokenizer = 'roberta-base', vocab_file = None):
-        
-        SPLIT_PREFIX = f'clotho_dataset_{split}'
-        self.data_dir = os.path.join(data_dir, SPLIT_PREFIX)
+    def __init__(self, data_dir, split, augment):
 
-        # List of all the files in the dataset
-        self.dataset = os.listdir(self.data_dir)
+        if split == 'train/val':
+            subfolder = 'clotho_dataset_dev'
+        elif split == 'test':
+            subfolder = 'clotho_dataset_eva'
 
-        self.spec_shape = ((40*44100+1)//512, 64)
-        self.caption_shape = (30,1)
+        self.data_dir = data_dir + subfolder
+        self.spectogram_shape = ((40*44100+1)//512, 64)     # From config file - 40 seconds * 44100 mhz
+        self.caption_shape = (30,1)                         # From config file - 30 tokens long
+        self.augment = augment
+        self.split = split
 
+        spectrogram, caption = get_data_from_numpy(self.data_dir)
+        self.spectrogram = spectrogram
+        self.caption = caption
 
     def __len__(self):
-        return len(self.dataset)
+        return len(self.spectrogram)
 
     def __getitem__(self, idx):
-        
-        
-        
-        # Empty array of shape self.spec_shape for zero padding
-        spec = np.zeros(self.spec_shape)
-        # caption = np.ones(self.caption_shape)*9 # 9 corresponds to <eos> token
+        spectrogram = self.spectrogram[idx]
+        caption = self.caption[idx]
 
-        # Load the file 
-        data_item = np.load(os.path.join(self.data_dir, self.dataset[idx]), allow_pickle = True)
-        spectrogram = data_item.features[0]
-        caption = data_item.caption[0]
+        if self.augment and self.split == 'train/val':
+          spectrogram = transform_spectrograms(spectrogram)
+          caption = transform_captions(caption)
         
-
-        caption = caption[6:-6] # Remove the <s> and </s> tokens from the caption
-        
-
-        #Padding 
-        spec[:spectrogram.shape[0], :spectrogram.shape[1]] = spectrogram
-
-        # Tokenize the caption
+        # Initialize the tokenizer
         tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-        tokenized_input = tokenizer(caption, return_tensors = 'pt', padding = 'max_length', max_length = 30, truncation=True)
+        tokenizer_output  = tokenizer(caption, return_tensors = 'pt', padding = 'max_length', max_length = 30, truncation=True)
+        caption = tokenizer_output['input_ids']
+        attention_mask = tokenizer_output['attention_mask']
         
-        input_ids = tokenized_input['input_ids']
-        attention_mask = tokenized_input['attention_mask'] 
-
-          
-        # Convert the spectrogram to a tensor
-        spec = torch.from_numpy(spec)
-        
-        # Stack tensor to make it 3 channel
-        spec = torch.stack([spec, spec, spec], dim = 0)
-
-        return spec, input_ids, attention_mask 
-
-
-
-# Collate function to pad the spectrograms to desired shape
-def collate_fn(batch):
-    raise NotImplementedError
+        return spectrogram, caption #, attention_mask 
 
 
 
 if __name__ == "__main__":
 
-    test = AudioCaptioningDataset(data_dir = '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data', split = 'dev', tokenizer = 'roberta-base', vocab_file = '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/words_list.p')
-    dataloader = DataLoader(test, batch_size = 16, shuffle = True)
-    spec, ids, mask = next(iter(dataloader))
-    print(spec.shape)
-    print(ids.shape)
-    print(mask.shape)
-    print(len(dataloader))
+    train_dataset = AudioCaptioningDataset(data_dir = '/content/drive/My Drive/MusicCaptioning/dataset/', 
+                                       split='train/val',
+                                       augment = True)
+    
+    train_size = int(0.8 * len(train_dataset))
+    val_size = len(train_dataset) - train_size
 
+    train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
+    train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=32, shuffle=True)
 
+    global_var  = None
+    for (idx, batch) in enumerate(train_dataloader):
+      #print(batch)
+      pass
         
 
 
