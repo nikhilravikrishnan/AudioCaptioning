@@ -179,6 +179,9 @@ def run_pann():
 
         ]
         , lr =1e-4, weight_decay=0.01)
+
+    # Log current learning rate
+    wandb.watch(model, log="all", log_freq=10)
     
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
