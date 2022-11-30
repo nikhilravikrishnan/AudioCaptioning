@@ -1,3 +1,14 @@
+system_settings:
+    data_dir: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data'
+    save_dir: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/checkpoints'
+    sys_path: '/home/nikhilrk/MusicCaptioning/MusicCaptioning'
+    model_lib_path: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/models'
+
+hyperparameters:
+    split: 'dev'
+    epochs: 100
+    batch_size: 8
+
 network:
   model: Wavegram_Logmel_Cnn14
   get_feat_vec: False

@@ -6,7 +6,7 @@ import torch.utils.data
 import wandb
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
-parser.add_argument("--config", default="/home/jupyter/music/configs/resnet.yaml")
+parser.add_argument("--config", default="/home/nikhilrk/MusicCaptioning/MusicCaptioning/configs/pann.yaml")
 
 def set_syspath():
     sys.path.append(args.sys_path)
@@ -165,25 +165,20 @@ def run_pann():
     epochs = args.epochs
     optimizer = torch.optim.Adam(
         [
-            {"params": model.audio_encoder.conv_block1.conv1.parameters(), "lr": 1e-7},
-            {"params": model.audio_encoder.conv_block1.conv2.parameters(), "lr": 1e-7},
-            {"params": model.audio_encoder.conv_block2.conv1.parameters(), "lr": 1e-7},
-            {"params": model.audio_encoder.conv_block2.conv2.parameters(), "lr": 1e-7},
-            {"params": model.audio_encoder.conv_block3.conv1.parameters(), "lr": 1e-5},
-            {"params": model.audio_encoder.conv_block3.conv2.parameters(), "lr": 1e-5},
-            {"params": model.audio_encoder.conv_block4.conv1.parameters(), "lr": 3e-4},
-            {"params": model.audio_encoder.conv_block4.conv2.parameters(), "lr": 3e-4},
-            {"params": model.audio_encoder.conv_block5.conv1.parameters(), "lr": 5e-3},
-            {"params": model.audio_encoder.conv_block5.conv2.parameters(), "lr": 5e-3},
-            {"params": model.audio_encoder.conv_block6.conv1.parameters(), "lr": 5e-3},
-            {"params": model.audio_encoder.conv_block6.conv2.parameters(), "lr": 5e-3},
+            {"params": model.audio_encoder.conv_block1.parameters(), "lr": 1e-7},
+            {"params": model.audio_encoder.conv_block2.parameters(), "lr": 1e-7},
+           
+            {"params": model.audio_encoder.conv_block3.parameters(), "lr": 1e-5},
+           
+            {"params": model.audio_encoder.conv_block4.parameters(), "lr": 3e-4},
+         
+            {"params": model.audio_encoder.conv_block5.parameters(), "lr": 5e-3},
+            
+            {"params": model.audio_encoder.conv_block6.parameters(), "lr": 5e-3},
+           
 
-
-            {"params": model.text_encoder.parameters(), "lr": 1e-9},
-
-            {"params": model.audio_encoder.conv_block1.conv1.parameters(), "lr": 1e-3}
         ]
-        , lr =1e-5, weight_decay=0.01)
+        , lr =1e-4, weight_decay=0.01)
     
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
@@ -192,7 +187,7 @@ def run_pann():
     dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
 
     # Create train and validation dataloaders
-    train_size = int(0.8 * len(dataset))
+    train_size = int(0.85 * len(dataset))
     val_size = len(dataset) - train_size
     
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
@@ -206,11 +201,11 @@ def run_pann():
     # Training and Validation
     
     for e in range(epochs):
-        
+        print('Epoch:', e)
         # Training
         train_total_loss = 0
         model.train()
-        for (idx,batch) in enumerate(train_dataloader):
+        for idx, batch in enumerate(train_dataloader):
 
             # Send to device
             batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
@@ -221,21 +216,23 @@ def run_pann():
             optimizer.step()
             lr_scheduler.step(metrics=batch_loss)
             train_total_loss += batch_loss.item()
+
+            print('Batch Loss:', batch_loss.item())
         
         
         print('Training Loss:', train_total_loss/len(train_dataloader))
-        print('Epoch:', e)
+        
 
         wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
         
 
-        save_filename = os.path.join(args.save_dir, 'model_{args.model}.pth'.format(e))
+        save_filename = os.path.join(args.save_dir, f'model_{args.model}.pth')
 
         model.eval()
         val_total_loss = 0
         
         # Validation
-        for (idx,batch) in enumerate(val_dataloader):
+        for idx,batch in enumerate(val_dataloader):
             batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
             batch_loss, _, __ = model.forward(batch)
             val_total_loss += batch_loss.item()

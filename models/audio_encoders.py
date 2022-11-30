@@ -96,41 +96,6 @@ class ConvBlock(nn.Module):
         
         return x
 
-class ConvPreWavBlock(nn.Module):
-    def __init__(self, in_channels, out_channels):
-        
-        super(ConvPreWavBlock, self).__init__()
-        
-        self.conv1 = nn.Conv1d(in_channels=in_channels, 
-                              out_channels=out_channels,
-                              kernel_size=3, stride=1,
-                              padding=1, bias=False)
-                              
-        self.conv2 = nn.Conv1d(in_channels=out_channels, 
-                              out_channels=out_channels,
-                              kernel_size=3, stride=1, dilation=2, 
-                              padding=2, bias=False)
-                              
-        self.bn1 = nn.BatchNorm1d(out_channels)
-        self.bn2 = nn.BatchNorm1d(out_channels)
-
-        self.init_weight()
-        
-    def init_weight(self):
-        init_layer(self.conv1)
-        init_layer(self.conv2)
-        init_bn(self.bn1)
-        init_bn(self.bn2)
-
-        
-    def forward(self, input, pool_size):
-        
-        x = input
-        x = F.relu(self.bn1(self.conv1(x)))
-        x = F.relu(self.bn2(self.conv2(x)))
-        x = F.max_pool1d(x, kernel_size=pool_size)
-        
-        return x
 
 class Cnn14(nn.Module):
     def __init__(self, classes_num=527):
@@ -157,9 +122,8 @@ class Cnn14(nn.Module):
         """
         Input: (batch_size, data_length)"""
 
-        x = input.unsqueeze(0)
         # convert x to float
-        x = x.float()
+        x = input.unsqueeze(1).float()
         x = self.conv_block1(x, pool_size=(2, 2), pool_type='avg')
         x = F.dropout(x, p=0.2, training=self.training)
         x = self.conv_block2(x, pool_size=(2, 2), pool_type='avg')

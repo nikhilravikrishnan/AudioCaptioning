@@ -106,7 +106,7 @@ class PANNClip(nn.Module):
         image_embedding_size=2048,
         text_embedding_size=768,
         audio_encoder=audio_encoders.Cnn14(), #add default params
-        model_path="/home/nikhilrk/MusicCaptioning/MusicCaptioning/models/pretrained_weights/Wavegram_Logmel_Cnn14_mAP=0.439.pth",
+        model_path="/home/nikhilrk/MusicCaptioning/MusicCaptioning/models/pretrained_weights/Cnn14_mAP=0.431.pth"
     ):
         super().__init__()
         self.audio_encoder = audio_encoder
@@ -132,18 +132,36 @@ class PANNClip(nn.Module):
         self.text_embeddings = None
 
     def forward(self, batch):
-        raw_audio_features = batch["image"]
-        processed_audio = []
+
+        loss = InfoNCE()
+
+        raw_audio_features = batch[0]
+        
+
+        audio_features = self.audio_encoder(raw_audio_features)
+
+        raw_ids = batch[1]
+        raw_mask = batch[2]
+
+        # Reshape raw_ids and raw_mask to (batch_size, seq_len)
+        raw_ids = raw_ids.reshape(-1, raw_ids.shape[-1])
+        raw_mask = raw_mask.reshape(-1, raw_mask.shape[-1])
         
         
-        audio_stack = torch.stack(processed_audio)
-        text_features = self.text_encoder(
-            input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
-        )
+        with torch.no_grad():
+            text_features = self.text_encoder(
+                input_ids=raw_ids, attention_mask=raw_mask
+            )
         # Getting audio and Text Embeddings (with same dimension)
-        audio_embeddings = self.audio_projection(audio_stack)
+        audio_embeddings = self.audio_projection(audio_features)
         text_embeddings = self.text_projection(text_features)
-        return audio_embeddings, text_embeddings
+
+
+        batch_loss = loss.forward(text_embeddings, audio_embeddings)
+
+
+
+        return batch_loss, audio_embeddings, text_embeddings
 
 class ProjectionHead(nn.Module):
     def __init__(
