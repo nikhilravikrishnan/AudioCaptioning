@@ -58,7 +58,6 @@ class AudioCaptioningDataset(Dataset):
         input_ids = tokenized_input['input_ids']
         attention_mask = tokenized_input['attention_mask'] 
 
-          
         # Convert the spectrogram to a tensor
         spec = torch.from_numpy(spec)
         

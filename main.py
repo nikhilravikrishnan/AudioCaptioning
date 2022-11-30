@@ -16,7 +16,7 @@ def set_syspath():
     print(sys.path)
     return
 
-def train(get_metrics=False):
+def train(get_metrics=False, fine_tune=False):
     """
     Make predictions on the dataset using the model specified using args.model on Mel-Spectrogram image representations
     of input audio.
@@ -30,9 +30,13 @@ def train(get_metrics=False):
 
     """
     from models.clip import BaseClip, ViTClip
+    import models.trainable_params
     from torch.utils.data.dataloader import DataLoader
     from dataloaders.clotho_dataloader import AudioCaptioningDataset
-    import torch.optim 
+    import torch.optim
+    import wandb
+
+    wandb.init(project=args.model + "-F22", entity="deep-learning-f22")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -52,7 +56,15 @@ def train(get_metrics=False):
         model_dir += f"seed_{args.random_seed}"
 
     epochs = args.epochs
-    optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
+    optimizer = None
+
+    if fine_tune == False:
+        optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
+    else:
+        if args.model == "ViT":
+            model_params = models.trainable_params.get_trainable_vit_params(model, args.num_trainable_layers)
+        optimizer = torch.optim.Adam(model_params, lr=1e-4, weight_decay=0.01)
+    
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
 
@@ -96,6 +108,7 @@ def train(get_metrics=False):
         
         
         print('Training Loss:', train_total_loss/len(train_dataloader))
+        wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
         print('Epoch:', e)
 
         save_filename = model_dir + f"/model_{e}.pth"
@@ -113,7 +126,8 @@ def train(get_metrics=False):
             batch_loss, _, __ = model.forward(batch)
             val_total_loss += batch_loss.item()
 
-        print('Validation Loss:', val_total_loss/len(val_dataloader))  
+        print('Validation Loss:', val_total_loss/len(val_dataloader))
+        wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
 
         if val_total_loss < min_val_loss:
             print("Saving...")
@@ -121,10 +135,10 @@ def train(get_metrics=False):
             print('Saved as %s' % save_filename)  
             min_val_loss = val_total_loss
 
-        if get_metrics == True:
-            train_metrics = evaluate(model, "train")
-            print(f"Epoch {e} training metrics: ")
-            print(train_metrics)
+            if get_metrics == True:
+                train_metrics = evaluate(model, "train")
+                print(f"Epoch {e} training metrics: ")
+                print(train_metrics)
     
     metrics = evaluate(model, "train")
     metrics_fp = model_dir + "/train_metrics.txt"
@@ -254,7 +268,7 @@ def main():
 
     # Make predictions using the appropriate method for the selected model
     if args.mode == "train":
-        train()
+        train(get_metrics=args.get_metrics, fine_tune=args.fine_tune)
     
     if args.mode == "eval":
 
