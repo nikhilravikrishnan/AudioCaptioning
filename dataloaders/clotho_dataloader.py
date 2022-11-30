@@ -63,7 +63,9 @@ class AudioCaptioningDataset(Dataset):
         spec = torch.from_numpy(spec)
         
         # Stack tensor to make it 3 channel
-        spec = torch.stack([spec, spec, spec], dim = 0)
+
+        # Needs to be changed for PANN
+        # spec = torch.stack([spec, spec, spec], dim = 0)
 
         return spec, input_ids, attention_mask 
 

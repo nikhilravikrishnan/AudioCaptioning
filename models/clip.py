@@ -106,6 +106,7 @@ class PANNClip(nn.Module):
         image_embedding_size=2048,
         text_embedding_size=768,
         audio_encoder=audio_encoders.Cnn14(), #add default params
+        model_path="/home/nikhilrk/MusicCaptioning/MusicCaptioning/models/pretrained_weights/Wavegram_Logmel_Cnn14_mAP=0.439.pth",
     ):
         super().__init__()
         self.audio_encoder = audio_encoder
@@ -113,16 +114,28 @@ class PANNClip(nn.Module):
         self.audio_projection = ProjectionHead(embedding_dim=image_embedding_size)
         self.text_projection = ProjectionHead(embedding_dim=text_embedding_size)
         self.temperature = temp
+        self.saved_model = torch.load(model_path)
+
+        self.saved_model['model'].pop('spectrogram_extractor.stft.conv_real.weight')
+        self.saved_model['model'].pop('spectrogram_extractor.stft.conv_imag.weight')
+        self.saved_model['model'].pop('logmel_extractor.melW')
+        self.saved_model['model'].pop("fc1.weight")
+        self.saved_model['model'].pop("fc1.bias")
+        self.saved_model['model'].pop("fc_audioset.weight") 
+        self.saved_model['model'].pop("fc_audioset.bias")
+
+
+        audio_encoder.load_state_dict(self.saved_model["model"])
+
+
         self.audio_embeddings = None
         self.text_embeddings = None
 
     def forward(self, batch):
         raw_audio_features = batch["image"]
         processed_audio = []
-        with torch.no_grad():
-            for i in range(raw_audio_features.size()[0]):
-                audio_features = self.audio_encoder(raw_audio_features[i, :, :, :])
-                processed_audio.append(audio_features["embedding"])
+        
+        
         audio_stack = torch.stack(processed_audio)
         text_features = self.text_encoder(
             input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
