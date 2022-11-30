@@ -3,6 +3,7 @@ import argparse
 import os
 import sys
 import torch.utils.data
+import wandb
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
 parser.add_argument("--config", default="/home/jupyter/music/configs/resnet.yaml")
@@ -150,6 +151,8 @@ def run_pann():
     https://github.com/qiuqiangkong/audioset_tagging_cnn
     """
     model = PANNClip(temp=1)
+
+    wandb.init(project="PANN-FineTuning")
    
     # Use the GPU if we can
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -160,7 +163,28 @@ def run_pann():
 
 
     epochs = args.epochs
-    optimizer = torch.optim.Adam(model.parameters(), lr =1e-5, weight_decay=0.)
+    optimizer = torch.optim.Adam(
+        [
+            {"params": model.audio_encoder.conv_block1.conv1.parameters(), "lr": 1e-7},
+            {"params": model.audio_encoder.conv_block1.conv2.parameters(), "lr": 1e-7},
+            {"params": model.audio_encoder.conv_block2.conv1.parameters(), "lr": 1e-7},
+            {"params": model.audio_encoder.conv_block2.conv2.parameters(), "lr": 1e-7},
+            {"params": model.audio_encoder.conv_block3.conv1.parameters(), "lr": 1e-5},
+            {"params": model.audio_encoder.conv_block3.conv2.parameters(), "lr": 1e-5},
+            {"params": model.audio_encoder.conv_block4.conv1.parameters(), "lr": 3e-4},
+            {"params": model.audio_encoder.conv_block4.conv2.parameters(), "lr": 3e-4},
+            {"params": model.audio_encoder.conv_block5.conv1.parameters(), "lr": 5e-3},
+            {"params": model.audio_encoder.conv_block5.conv2.parameters(), "lr": 5e-3},
+            {"params": model.audio_encoder.conv_block6.conv1.parameters(), "lr": 5e-3},
+            {"params": model.audio_encoder.conv_block6.conv2.parameters(), "lr": 5e-3},
+
+
+            {"params": model.text_encoder.parameters(), "lr": 1e-9},
+
+            {"params": model.audio_encoder.conv_block1.conv1.parameters(), "lr": 1e-3}
+        ]
+        , lr =1e-5, weight_decay=0.01)
+    
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
 
@@ -202,9 +226,10 @@ def run_pann():
         print('Training Loss:', train_total_loss/len(train_dataloader))
         print('Epoch:', e)
 
+        wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
         
 
-        save_filename = os.path.join(args.save_dir, 'model_{}.pth'.format(e))
+        save_filename = os.path.join(args.save_dir, 'model_{args.model}.pth'.format(e))
 
         model.eval()
         val_total_loss = 0
@@ -216,7 +241,7 @@ def run_pann():
             val_total_loss += batch_loss.item()
 
         print('Validation Loss:', val_total_loss/len(val_dataloader))  
-
+        wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})
         
         if val_total_loss < min_val_loss:
             print("Saving...")
