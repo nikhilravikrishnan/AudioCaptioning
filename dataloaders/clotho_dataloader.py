@@ -53,7 +53,7 @@ class AudioCaptioningDataset(Dataset):
 
         # Tokenize the caption
         tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
-        tokenized_input = tokenizer(caption, return_tensors = 'pt', padding = 'max_length', max_length = 30)
+        tokenized_input = tokenizer(caption, return_tensors = 'pt', padding = 'max_length', max_length = 30, truncation=True)
         
         input_ids = tokenized_input['input_ids']
         attention_mask = tokenized_input['attention_mask'] 

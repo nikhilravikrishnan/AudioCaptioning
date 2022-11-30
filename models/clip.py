@@ -4,6 +4,7 @@ import text_encoder
 import audio_encoders
 from torchvision.models import resnet50, ResNet50_Weights, vit_b_16, ViT_B_16_Weights
 from util.loss import InfoNCE
+import time
 
 import numpy as np
 
