@@ -78,8 +78,6 @@ def get_numpy_from_datadir(data_dir, split):
     for file in tqdm(os.listdir(data_dir)):
     
         if file.endswith(".npy"):
-            if i > 10:
-              break
               
             # Load the data item
             item = np.load(os.path.join(data_dir, file), allow_pickle=True)
