@@ -33,7 +33,9 @@ class ViTClip(nn.Module):
             for name, param in self.named_parameters():
                 param.requires_grad_ = False
             self.audio_encoder.heads.requires_grad_ = True
-            self.audio_encoder.encoder.layers.ln.requires_grad_ = True
+            #self.audio_encoder.encoder.layers.ln.requires_grad_ = True
+            #for name, param in self.audio_encoder.encoder.layers.named_parameters():
+            #    print(name)
             self.audio_encoder.encoder.layers.encoder_layer_11.requires_grad_ = True
             self.audio_encoder.encoder.layers.encoder_layer_10.requires_grad_ = True
             self.audio_encoder.encoder.layers.encoder_layer_9.requires_grad_ = True

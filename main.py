@@ -30,13 +30,12 @@ def train(get_metrics=False, fine_tune=False):
 
     """
     from models.clip import BaseClip, ViTClip
-    import models.trainable_params
     from torch.utils.data.dataloader import DataLoader
     from dataloaders.clotho_dataloader import AudioCaptioningDataset
     import torch.optim
     import wandb
 
-    wandb.init(project=args.model + "-F22", entity="deep-learning-f22")
+    #wandb.init(project=args.model + "-F22", entity="deep-learning-f22")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -56,14 +55,9 @@ def train(get_metrics=False, fine_tune=False):
         model_dir += f"seed_{args.random_seed}"
 
     epochs = args.epochs
-    optimizer = None
 
-    if fine_tune == False:
-        optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
-    else:
-        if args.model == "ViT":
-            model_params = models.trainable_params.get_trainable_vit_params(model, args.num_trainable_layers)
-        optimizer = torch.optim.Adam(model_params, lr=1e-4, weight_decay=0.01)
+    optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
+
     
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
@@ -108,7 +102,7 @@ def train(get_metrics=False, fine_tune=False):
         
         
         print('Training Loss:', train_total_loss/len(train_dataloader))
-        wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
+        #wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
         print('Epoch:', e)
 
         save_filename = model_dir + f"/model_{e}.pth"
@@ -127,7 +121,7 @@ def train(get_metrics=False, fine_tune=False):
             val_total_loss += batch_loss.item()
 
         print('Validation Loss:', val_total_loss/len(val_dataloader))
-        wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
+        #wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
 
         if val_total_loss < min_val_loss:
             print("Saving...")
@@ -238,7 +232,7 @@ def load_model(device, state_dict=None):
     if args.model == "ResNet":
         model = BaseClip(device=device)
     elif args.model == "ViT":
-        model = ViTClip(device=device)
+        model = ViTClip(device=device, fine_tune=args.fine_tune)
     else:
         raise NotImplemented
         
@@ -260,8 +254,6 @@ def main():
     for key in config:
         for k, v in config[key].items():
             setattr(args, k, v)
-
-    args.mode = "eval"
     
     # Setting the sys.path variable so we can find our models' Python modules
     set_syspath()
