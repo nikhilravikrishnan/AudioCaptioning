@@ -29,11 +29,21 @@ class ViTClip(nn.Module):
         self.fine_tune = fine_tune
         self.device = device
         self.audio_size = image_embedding_size
+        self.layer_extract = ["heads.head", "encoder.layers.encoder_layer_11.mlp.4", "encoder.ln"] # Layer to use as the audio embedding
+        self._features = {layer: torch.empty(0) for layer in self.layer_extract}
+        
+        
+        # Registering a forward hook to save output for the audio embeddings
+        for layer_id in self.layer_extract:
+            layer = dict([*self.audio_encoder.named_modules()])[layer_id]
+            layer.register_forward_hook(self.save_output_hook(layer_id))
+
         if fine_tune == True:
-            print(fine_tune)
+            # The list of layers to fine tune
             params = ["audio_encoder.heads", "audio_encoder.encoder.layers.encoder_layer_11", 
             "audio_encoder.encoder.layers.encoder_layer_10", "audio_projection", "text_projection"]
             
+            # Only create a gradient in the computational graph for the selected layers
             for name, param in self.named_parameters():
                 for p in params:
                     if p in name:
@@ -42,6 +52,13 @@ class ViTClip(nn.Module):
                     else:
                         param.requires_grad = False
 
+    def save_output_hook(self, layer):
+        # Forward hook function is of the form:
+        # hook(module, input, output) -> None or modified output
+        # Here we use it to set the self._features[layer] property on the forward pass
+        def fn(_, __, output):
+            self._features[layer] = output
+        return fn
     
     def forward(self, batch):
         from util.loss import InfoNCE
@@ -64,7 +81,6 @@ class ViTClip(nn.Module):
             )
 
         processed_audio = torch.zeros((batch_size, self.audio_size))
-        #processed_audio = []
 
         if self.fine_tune == False:
             with torch.no_grad():
@@ -72,16 +88,13 @@ class ViTClip(nn.Module):
                     transformed_audio = self.transforms(raw_audio_features[i, :, :, :].squeeze(0))
                     audio_features = audio_encoders.get_vit_feature_vector(self.audio_encoder, self.device, transformed_audio.type(torch.DoubleTensor))
                     processed_audio[i, :] = audio_features
-                    #processed_audio.append(audio_features)
             
                 #processed_audio = torch.stack(processed_audio)
         else:
             for i in range(raw_audio_features.size()[0]):
-                transformed_audio = self.transforms(raw_audio_features[i, :, :, :].squeeze(0))
-                audio_features = audio_encoders.get_vit_feature_vector(self.audio_encoder, self.device, transformed_audio.type(torch.DoubleTensor))
-                processed_audio[i, :] = audio_features
-            
-            #processed_audio = torch.stack(processed_audio)
+                transformed_audio = self.transforms(raw_audio_features[i, :, :, :].unsqueeze(0))
+                _ = self.audio_encoder(transformed_audio)
+                audio_features = self._features["encoder.layers.encoder_layer_11.mlp.4"][0, :]
         
         # Getting audio and Text Embeddings (with same dimension)
         audio_embeddings = self.audio_projection(processed_audio.type(torch.FloatTensor).to(self.device))

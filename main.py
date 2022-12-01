@@ -31,7 +31,7 @@ def train(get_metrics=False):
     """
     from models.clip import BaseClip, ViTClip
     from torch.utils.data.dataloader import DataLoader
-    from dataloaders.clotho_dataloader import AudioCaptioningDataset
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset, get_numpy_from_datadir
     import torch.optim
     import wandb
 
@@ -62,15 +62,12 @@ def train(get_metrics=False):
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
 
-
-    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
-
     # Create train and validation dataloaders
     print("Creating dataloaders...")
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    data_train = get_numpy_from_datadir(args.data_dir, 'train/val')
+    train_dataset = AudioCaptioningDataset(data_train['train_spectrograms'], data_train['train_captions'], augment = True)
+    val_dataset = AudioCaptioningDataset(data_train['val_spectrograms'], data_train['val_captions'])
+
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
 
@@ -146,7 +143,7 @@ def train(get_metrics=False):
 
 def evaluate(model, mode="eval", mean=True):
     from torch.utils.data.dataloader import DataLoader
-    from dataloaders.clotho_dataloader import AudioCaptioningDataset
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset, get_numpy_from_datadir
     from util.utils import eval_model_embeddings
     
     # Use the GPU if we can
@@ -154,7 +151,8 @@ def evaluate(model, mode="eval", mean=True):
     
     print(f"Using device {device} for model evaluation.")
     
-    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
+    data_test = get_numpy_from_datadir(args.data_dir, 'test')
+    dataset = AudioCaptioningDataset(data_test['test_spectrograms'], data_test['test_captions'])
 
     if mode == "eval":
         all_batch_metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
