@@ -11,9 +11,9 @@ from niacin.augment import RandAugment
 from niacin.text import en
 import sys
 import os
-import models.audio_encoders
-import models.text_encoder
 import matplotlib.pyplot as plt
+import nltk
+nltk.download('omw-1.4')
 
 def plot_spectrogram(spec):
   plt.figure(figsize=(10, 4))
