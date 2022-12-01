@@ -16,7 +16,7 @@ def set_syspath():
     print(sys.path)
     return
 
-def train(get_metrics=False, fine_tune=False):
+def train(get_metrics=False):
     """
     Make predictions on the dataset using the model specified using args.model on Mel-Spectrogram image representations
     of input audio.
@@ -35,7 +35,7 @@ def train(get_metrics=False, fine_tune=False):
     import torch.optim
     import wandb
 
-    #wandb.init(project=args.model + "-F22", entity="deep-learning-f22")
+    wandb.init(project=args.model + "-F22", entity="deep-learning-f22")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -102,7 +102,7 @@ def train(get_metrics=False, fine_tune=False):
         
         
         print('Training Loss:', train_total_loss/len(train_dataloader))
-        #wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
+        wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
         print('Epoch:', e)
 
         save_filename = model_dir + f"/model_{e}.pth"
@@ -121,7 +121,7 @@ def train(get_metrics=False, fine_tune=False):
             val_total_loss += batch_loss.item()
 
         print('Validation Loss:', val_total_loss/len(val_dataloader))
-        #wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
+        wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
 
         if val_total_loss < min_val_loss:
             print("Saving...")
@@ -260,7 +260,7 @@ def main():
 
     # Make predictions using the appropriate method for the selected model
     if args.mode == "train":
-        train(get_metrics=args.get_metrics, fine_tune=args.fine_tune)
+        train(get_metrics=args.get_metrics)
     
     if args.mode == "eval":
 
