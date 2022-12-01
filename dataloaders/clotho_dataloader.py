@@ -32,10 +32,10 @@ def transform_spectrograms (spectrogram):
   ret = np.zeros(spectrogram_size)
   ret[:spectrogram.size()[1], :spectrogram.size()[2]] = spectrogram
 
-  #plt.figure(figsize=(10, 4))
-  #plt.imshow(ret, aspect='auto', origin='lower')
-  #plt.colorbar()
-  #plt.title('Spectrogram')
+#   plt.figure(figsize=(10, 4))
+#   plt.imshow(ret, aspect='auto', origin='lower')
+#   plt.colorbar()
+#   plt.title('Spectrogram')
 
   return ret
 
@@ -44,18 +44,21 @@ def transform_captions(caption):
   augmentor = RandAugment([
     en.add_synonyms,
     en.add_hypernyms,
-    en.add_hyponyms,
-    en.add_misspelling,
-    en.add_contractions,
-    en.add_fat_thumbs,
+    # en.add_hyponyms,
+    # # en.add_misspelling,
+    # en.add_contractions,
+    # # en.add_fat_thumbs,
     en.remove_articles,
-    en.remove_characters,
+    # en.remove_characters,
     en.remove_contractions,
     en.remove_punctuation
     ], n=2, m=10, shuffle=False)
+
+
   
   for tx in augmentor:
     caption = tx(caption)
+
     
   return caption
 
@@ -90,7 +93,7 @@ def get_data_from_numpy(data_dir, vocab_file = None, audio_encoder:str = None, l
             captions.append(caption)
             
 
-    return np.array(spectrograms), np.array(captions)
+    return spectrograms, captions
 
 # Dataloader that takes spectrogram and caption data to serve for training us
 """
@@ -158,6 +161,9 @@ if __name__ == "__main__":
     train_dataset, val_dataset = torch.utils.data.random_split(train_dataset, [train_size, val_size])
     train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=32, shuffle=True)
+
+    data = next(iter(train_dataloader))
+    print(data)
 
     
         
