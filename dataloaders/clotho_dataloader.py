@@ -76,9 +76,7 @@ def get_numpy_from_datadir(data_dir, split):
     # Load the data
     i = 0
     for file in tqdm(os.listdir(data_dir)):
-    
         if file.endswith(".npy"):
-              
             # Load the data item
             item = np.load(os.path.join(data_dir, file), allow_pickle=True)
             # Appending spectrogram
