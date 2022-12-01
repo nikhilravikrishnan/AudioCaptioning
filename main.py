@@ -35,7 +35,7 @@ def train(get_metrics=False):
     import torch.optim
     import wandb
 
-    wandb.init(project=args.model + "-F22", entity="deep-learning-f22")
+    #wandb.init(project=args.model + "-F22", entity="deep-learning-f22")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -102,7 +102,7 @@ def train(get_metrics=False):
         
         
         print('Training Loss:', train_total_loss/len(train_dataloader))
-        wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
+        #wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
         print('Epoch:', e)
 
         save_filename = model_dir + f"/model_{e}.pth"
@@ -121,7 +121,7 @@ def train(get_metrics=False):
             val_total_loss += batch_loss.item()
 
         print('Validation Loss:', val_total_loss/len(val_dataloader))
-        wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
+        #wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
 
         if val_total_loss < min_val_loss:
             print("Saving...")

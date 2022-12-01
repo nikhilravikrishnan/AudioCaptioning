@@ -30,17 +30,18 @@ class ViTClip(nn.Module):
         self.device = device
         self.audio_size = image_embedding_size
         if fine_tune == True:
+            print(fine_tune)
+            params = ["audio_encoder.heads", "audio_encoder.encoder.layers.encoder_layer_11", 
+            "audio_encoder.encoder.layers.encoder_layer_10", "audio_projection", "text_projection"]
+            
             for name, param in self.named_parameters():
-                param.requires_grad_ = False
-            self.audio_encoder.heads.requires_grad_ = True
-            #self.audio_encoder.encoder.layers.ln.requires_grad_ = True
-            #for name, param in self.audio_encoder.encoder.layers.named_parameters():
-            #    print(name)
-            self.audio_encoder.encoder.layers.encoder_layer_11.requires_grad_ = True
-            self.audio_encoder.encoder.layers.encoder_layer_10.requires_grad_ = True
-            self.audio_encoder.encoder.layers.encoder_layer_9.requires_grad_ = True
-            self.audio_projection.requires_grad_ = True
-            self.text_projection.requires_grad_ = True
+                for p in params:
+                    if p in name:
+                        param.requires_grad = True
+                        break
+                    else:
+                        param.requires_grad = False
+
     
     def forward(self, batch):
         from util.loss import InfoNCE
