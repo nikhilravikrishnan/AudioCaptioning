@@ -35,7 +35,10 @@ def train(get_metrics=False):
     import torch.optim
     import wandb
 
-    #wandb.init(project=args.model + "-F22", entity="deep-learning-f22")
+    config = {"lr": args.lr, "batch_size":args.batch_size, "seed":args.random_seed}
+    
+    wandb.init(project=args.model + "-F22", entity="deep-learning-f22",
+              config=config)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -51,12 +54,10 @@ def train(get_metrics=False):
     # Settings to save the model
     
     model_dir = args.save_dir
-    if args.random_seed is not None:
-        model_dir += f"seed_{args.random_seed}"
 
     epochs = args.epochs
 
-    optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
+    optimizer = torch.optim.Adam(model.parameters(), lr =args.lr, weight_decay=0.)
 
     
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
@@ -99,7 +100,7 @@ def train(get_metrics=False):
         
         
         print('Training Loss:', train_total_loss/len(train_dataloader))
-        #wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
+        wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
         print('Epoch:', e)
 
         save_filename = model_dir + f"/model_{e}.pth"
@@ -118,7 +119,7 @@ def train(get_metrics=False):
             val_total_loss += batch_loss.item()
 
         print('Validation Loss:', val_total_loss/len(val_dataloader))
-        #wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
+        wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
 
         if val_total_loss < min_val_loss:
             print("Saving...")
@@ -136,7 +137,7 @@ def train(get_metrics=False):
     print(f"Saving final training metrics to: {metrics_fp}")
 
     with open(metrics_fp, "w+") as f:
-        for k in metrics.keys:
+        for k in metrics.keys():
             f.write(k + ": " + f"{metrics[k]}\n")
 
     return
@@ -145,25 +146,27 @@ def evaluate(model, mode="eval", mean=True):
     from torch.utils.data.dataloader import DataLoader
     from dataloaders.clotho_dataloader import AudioCaptioningDataset, get_numpy_from_datadir
     from util.utils import eval_model_embeddings
+    import wandb
     
     # Use the GPU if we can
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     print(f"Using device {device} for model evaluation.")
     
-    data_test = get_numpy_from_datadir(args.data_dir, 'test')
-    dataset = AudioCaptioningDataset(data_test['test_spectrograms'], data_test['test_captions'])
 
     if mode == "eval":
+        data_test = get_numpy_from_datadir(args.data_dir, 'test')
+        test_dataset = AudioCaptioningDataset(data_test['test_spectrograms'], data_test['test_captions'])
+        
         all_batch_metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
         dataset_ind = [i for i in range(0, len(dataset), 100)] + [len(dataset)]
         
         for i in range(len(dataset_ind)):
             if i == 0:
                 continue
-            dataset_sub = torch.utils.data.Subset(dataset, range(dataset_ind[i-1], dataset_ind[i]))
+            dataset_sub = torch.utils.data.Subset(test_dataset, range(dataset_ind[i-1], dataset_ind[i]))
 
-            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=True)
             
             print(f"Calculating metrics for items {dataset_ind[i-1]} - {dataset_ind[i]}...")
             batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
@@ -171,10 +174,10 @@ def evaluate(model, mode="eval", mean=True):
                 all_batch_metrics[k].append(batch_metrics[k])
     
     if mode == "train":
-        train_size = int(0.8 * len(dataset))
-        val_size = len(dataset) - train_size
+        data_train = get_numpy_from_datadir(args.data_dir, 'train/val')
+        train_dataset = AudioCaptioningDataset(data_train['train_spectrograms'], data_train['train_captions'], augment = True)
+        val_dataset = AudioCaptioningDataset(data_train['val_spectrograms'], data_train['val_captions'])
         
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
         train_dataset_ind = [i for i in range(0, len(train_dataset), 100)] + [len(train_dataset)]
         val_dataset_ind = [i for i in range(0, len(val_dataset), 100)] + [len(val_dataset)]
 
@@ -188,7 +191,7 @@ def evaluate(model, mode="eval", mean=True):
             print(f"Calculating metrics for items {train_dataset_ind[i-1]} - {train_dataset_ind[i]}...")
             dataset_sub = torch.utils.data.Subset(train_dataset, range(train_dataset_ind[i-1], train_dataset_ind[i]))
 
-            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+            dataloader = DataLoader(dataset_sub, batch_size=100, shuffle=True)
             
             batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
             for k in batch_metrics.keys():
@@ -201,7 +204,7 @@ def evaluate(model, mode="eval", mean=True):
             print(f"Calculating metrics for items {val_dataset_ind[i-1]} - {val_dataset_ind[i]}...")
             dataset_sub = torch.utils.data.Subset(val_dataset, range(val_dataset_ind[i-1], val_dataset_ind[i]))
 
-            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+            dataloader = DataLoader(dataset_sub, batch_size=100, shuffle=False)
             
             batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
             for k in batch_metrics.keys():
@@ -213,6 +216,7 @@ def evaluate(model, mode="eval", mean=True):
         for k in all_batch_metrics.keys():
             metric_mean = sum(all_batch_metrics[k]) / len(all_batch_metrics[k])
             all_batch_metrics[k] = metric_mean
+        wandb.log({'Validation MRR': all_batch_metrics["val_MRR"], 'Validation MAP@K': all_batch_metrics['val_MAP@K'], 'Validation R@K': all_batch_metrics['val_R@K']})
 
     return all_batch_metrics
 
@@ -228,7 +232,7 @@ def load_model(device, state_dict=None):
     model = None
 
     if args.model == "ResNet":
-        model = BaseClip(device=device)
+        model = BaseClip(device=device, fine_tune=args.fine_tune)
     elif args.model == "ViT":
         model = ViTClip(device=device, fine_tune=args.fine_tune)
     else:
@@ -264,7 +268,7 @@ def main():
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        model = load_model(device, args.model_fp)
+        model = load_model(device, args.checkpoint_path)
 
         metrics = evaluate(model, mode="eval")
 
