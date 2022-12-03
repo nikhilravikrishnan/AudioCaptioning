@@ -20,38 +20,33 @@ def eval_model_embeddings(model, device, dataLoader, metric_name: list, **kwargs
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
-    audio_embedding_list = []
-    text_embedding_list = []
+    metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
 
-    #print("Generating embeddings...")
     for (idx, batch) in enumerate(dataLoader):
+        print(f"Calculating metrics for batch {idx}...")
+        
         batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
-        _, audio_encoders, text_encoders = model.forward(batch)
-        audio_embedding_list.append(audio_encoders)
-        text_embedding_list.append(text_encoders)
+        _, audio_embeddings, text_embeddings = model.forward(batch)
 
-    # Concatenate all the embeddings
-    audio_embeddings = torch.cat(audio_embedding_list, dim = 0)
-    text_embeddings = torch.cat(text_embedding_list, dim = 0)
+        if 'MRR' in metric_name:
+            #print("Calculating MRR...")
+            metrics["MRR"].append(mean_reciprocal_rank(audio_embeddings, text_embeddings))
 
-    metrics = {}
+        if 'MAP@K' in metric_name:
+            if 'k' not in kwargs:
+                raise ValueError("Needs K parameter.")
+            metrics["MAP@K"].append(mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k']))
 
-    if 'MRR' in metric_name:
-        #print("Calculating MRR...")
-        metrics["MRR"] = mean_reciprocal_rank(audio_embeddings, text_embeddings)
-    
-    if 'MAP@K' in metric_name:
-        if 'k' not in kwargs:
-            raise ValueError("Needs K parameter.")
-        #print("Calculating MAP@K...")
-        metrics["MAP@K"] = mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
+        if 'R@K' in metric_name:
+            if 'k' not in kwargs:
+                raise ValueError("Needs K parameter.")
+            #print("Calculating R@K...")
+            metrics["R@K"].append(mean_recall_at_k(audio_embeddings, text_embeddings, k = kwargs['k']))
 
-    if 'R@K' in metric_name:
-        if 'k' not in kwargs:
-            raise ValueError("Needs K parameter.")
-        #print("Calculating R@K...")
-        metrics["R@K"] = mean_recall_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
-
+    # Generate the mean for each metric across all batches
+    for k in metrics.keys():
+        metrics[k] = sum(metrics[k])/len(metrics[k])
+            
     return metrics
 
 def evaluate_precalcuated_embeddings(audio_embeddings, text_embeddings, metric_name: list, num_batches=8, **kwargs):

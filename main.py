@@ -142,7 +142,7 @@ def train(get_metrics=False):
 
     return
 
-def evaluate(model, mode="eval", mean=True):
+def evaluate(model, mode="eval"):
     from torch.utils.data.dataloader import DataLoader
     from dataloaders.clotho_dataloader import AudioCaptioningDataset, get_numpy_from_datadir
     from util.utils import eval_model_embeddings
@@ -153,72 +153,45 @@ def evaluate(model, mode="eval", mean=True):
     
     print(f"Using device {device} for model evaluation.")
     
-
     if mode == "eval":
         data_test = get_numpy_from_datadir(args.data_dir, 'test')
         test_dataset = AudioCaptioningDataset(data_test['test_spectrograms'], data_test['test_captions'])
         
-        all_batch_metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
-        dataset_ind = [i for i in range(0, len(dataset), 100)] + [len(dataset)]
-        
-        for i in range(len(dataset_ind)):
-            if i == 0:
-                continue
-            dataset_sub = torch.utils.data.Subset(test_dataset, range(dataset_ind[i-1], dataset_ind[i]))
-
-            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=True)
+        test_dataloader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False)
             
-            print(f"Calculating metrics for items {dataset_ind[i-1]} - {dataset_ind[i]}...")
-            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
-            for k in batch_metrics.keys():
-                all_batch_metrics[k].append(batch_metrics[k])
-    
+        metrics = eval_model_embeddings(model, device, test_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        
     if mode == "train":
+        # - Create train and validation data loaders - #
         data_train = get_numpy_from_datadir(args.data_dir, 'train/val')
         train_dataset = AudioCaptioningDataset(data_train['train_spectrograms'], data_train['train_captions'], augment = True)
         val_dataset = AudioCaptioningDataset(data_train['val_spectrograms'], data_train['val_captions'])
+
+        metrics = {}
+
+        # - Run metrics on training set - #
         
-        train_dataset_ind = [i for i in range(0, len(train_dataset), 100)] + [len(train_dataset)]
-        val_dataset_ind = [i for i in range(0, len(val_dataset), 100)] + [len(val_dataset)]
-
-        all_batch_metrics = {"train_MRR":[], "train_MAP@K":[], "train_R@K":[], 
-                            "val_MRR":[], "val_MAP@K":[], "val_R@K":[]}
-
         print("Calculating training set metrics...")
-        for i in range(len(train_dataset_ind)):
-            if i == 0:
-                continue
-            print(f"Calculating metrics for items {train_dataset_ind[i-1]} - {train_dataset_ind[i]}...")
-            dataset_sub = torch.utils.data.Subset(train_dataset, range(train_dataset_ind[i-1], train_dataset_ind[i]))
 
-            dataloader = DataLoader(dataset_sub, batch_size=100, shuffle=True)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.eval_batch_size, shuffle=True)
             
-            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
-            for k in batch_metrics.keys():
-                all_batch_metrics["train_"+k].append(batch_metrics[k])
+        train_metrics = eval_model_embeddings(model, device, train_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        for k in train_metrics.keys():
+            metrics["train_"+k] = train_metrics[k]
 
+        # - Run metrics on validation set - #
+        
         print("Calculating validation set metrics...")
-        for i in range(len(val_dataset_ind)):
-            if i == 0:
-                continue
-            print(f"Calculating metrics for items {val_dataset_ind[i-1]} - {val_dataset_ind[i]}...")
-            dataset_sub = torch.utils.data.Subset(val_dataset, range(val_dataset_ind[i-1], val_dataset_ind[i]))
-
-            dataloader = DataLoader(dataset_sub, batch_size=100, shuffle=False)
+        val_dataloader = DataLoader(val_dataset, batch_size=args.eval_batch_size, shuffle=False)
             
-            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
-            for k in batch_metrics.keys():
-                all_batch_metrics["val_"+k].append(batch_metrics[k])
+        val_metrics = eval_model_embeddings(model, device, val_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        for k in val_metrics.keys():
+            metrics["val_"+k] = val_metrics[k]
 
-    if mean == True:
-        print(all_batch_metrics)
-        # Get the mean of all batches for each metric rather than the individual results of each batch
-        for k in all_batch_metrics.keys():
-            metric_mean = sum(all_batch_metrics[k]) / len(all_batch_metrics[k])
-            all_batch_metrics[k] = metric_mean
-        wandb.log({'Validation MRR': all_batch_metrics["val_MRR"], 'Validation MAP@K': all_batch_metrics['val_MAP@K'], 'Validation R@K': all_batch_metrics['val_R@K']})
+        # Log our metrics
+        wandb.log({'Validation MRR': metrics["val_MRR"], 'Validation MAP@K': metrics['val_MAP@K'], 'Validation R@K': metrics['val_R@K']})
 
-    return all_batch_metrics
+    return metrics
 
 def load_model(device, state_dict=None):
     """

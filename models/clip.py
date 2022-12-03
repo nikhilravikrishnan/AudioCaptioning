@@ -87,13 +87,13 @@ class ViTClip(nn.Module):
                 for i in range(raw_audio_features.size()[0]):
                     transformed_audio = self.transforms(raw_audio_features[i, :, :, :].squeeze(0))
                     audio_features = audio_encoders.get_vit_feature_vector(self.audio_encoder, self.device, transformed_audio.type(torch.DoubleTensor))
-                    processed_audio[i, :] = audio_features
+                    processed_audio[i, :] = audio_features[0,:]
         else:
             for i in range(raw_audio_features.size()[0]):
                 transformed_audio = self.transforms(raw_audio_features[i, :, :, :].unsqueeze(0))
                 _ = self.audio_encoder(transformed_audio)
                 audio_features = self._features["encoder.layers.encoder_layer_11.mlp.4"][0, :]
-                processed_audio[i, :] = audio_features
+                processed_audio[i, :] = audio_features[0,:]
         
         # Getting audio and Text Embeddings (with same dimension)
         audio_embeddings = self.audio_projection(processed_audio.type(torch.FloatTensor).to(self.device))
