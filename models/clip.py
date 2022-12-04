@@ -127,22 +127,23 @@ class BaseClip(nn.Module):
         for layer_id in self.layer_extract:
             layer = dict([*self.audio_encoder.named_modules()])[layer_id]
             layer.register_forward_hook(self.save_output_hook(layer_id))
-
+        
+        params = ["audio_projection", "text_projection"]
         if fine_tune == True:
             # The list of layers to fine tune
-            params = ["audio_encoder.layer4.0", 
+            params += ["audio_encoder.layer4.0", 
                       "audio_encoder.layer4.1", 
                       "audio_encoder.layer4.2", 
                       "audio_encoder.fc"]
             
-            # Only create a gradient in the computational graph for the selected layers
-            for name, param in self.named_parameters():
-                for p in params:
-                    if p in name:
-                        param.requires_grad = True
-                        break
-                    else:
-                        param.requires_grad = False
+        # Only create a gradient in the computational graph for the selected layers
+        for name, param in self.named_parameters():
+            for p in params:
+                if p in name:
+                    param.requires_grad = True
+                    break
+                else:
+                    param.requires_grad = False
 
     def save_output_hook(self, layer):
         # Forward hook function is of the form:
@@ -174,16 +175,10 @@ class BaseClip(nn.Module):
 
         processed_audio = torch.zeros((batch_size, self.audio_size))
 
-        if self.fine_tune == False:
-            with torch.no_grad():
-                for i in range(raw_audio_features.size()[0]):
-                    _ = self.audio_encoder(raw_audio_features[i, :, :, :].unsqueeze(0))
-                    audio_features = self._features["fc"]
-        else:
-            for i in range(raw_audio_features.size()[0]):
-                _ = self.audio_encoder(raw_audio_features[i, :, :, :].unsqueeze(0))
-                audio_features = self._features["fc"]
-                processed_audio[i, :] = audio_features
+        for i in range(raw_audio_features.size()[0]):
+            _ = self.audio_encoder(raw_audio_features[i, :, :, :].unsqueeze(0))
+            audio_features = self._features["fc"]
+            processed_audio[i, :] = audio_features
 
         # Getting audio and Text Embeddings (with same dimension)
         audio_embeddings = self.audio_projection(audio_features)

@@ -245,7 +245,7 @@ def main():
 
         metrics = evaluate(model, mode="eval")
 
-        metrics_fp = args.save_dir + "/eval_metrics.txt"
+        metrics_fp = args.save_dir + f"/{args.model}_{args.random_seed}_metrics.txt"
 
         with open(metrics_fp, "w+") as f:
             for k in metrics.keys():
