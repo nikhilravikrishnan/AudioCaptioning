@@ -20,19 +20,22 @@ def train(get_metrics=False):
     """
     Make predictions on the dataset using the model specified using args.model on Mel-Spectrogram image representations
     of input audio.
-
     See the config_format.md file in the configs folder for more setting details.
-
     Parameters
     ---
     get_metrics: boolean
         Whether to get metrics (MRR, Recall/Precision @ 5) each epoch of training
-
     """
     from models.clip import BaseClip, ViTClip
     from torch.utils.data.dataloader import DataLoader
-    from dataloaders.clotho_dataloader import AudioCaptioningDataset
-    import torch.optim 
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset, get_numpy_from_datadir
+    import torch.optim
+    import wandb
+
+    config = {"lr": args.lr, "batch_size":args.batch_size, "seed":args.random_seed}
+    
+    wandb.init(project=args.model + "-F22", entity="deep-learning-f22",
+              config=config)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -48,23 +51,21 @@ def train(get_metrics=False):
     # Settings to save the model
     
     model_dir = args.save_dir
-    if args.random_seed is not None:
-        model_dir += f"seed_{args.random_seed}"
 
     epochs = args.epochs
-    optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr =args.lr, weight_decay=0.)
+
+    
     lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", patience=1.0, factor=0.8)
 
-
-    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
-
     # Create train and validation dataloaders
     print("Creating dataloaders...")
-    train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    
-    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    data_train = get_numpy_from_datadir(args.data_dir, 'train/val')
+    train_dataset = AudioCaptioningDataset(data_train['train_spectrograms'], data_train['train_captions'], augment = True)
+    val_dataset = AudioCaptioningDataset(data_train['val_spectrograms'], data_train['val_captions'])
+
     train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
 
@@ -96,6 +97,7 @@ def train(get_metrics=False):
         
         
         print('Training Loss:', train_total_loss/len(train_dataloader))
+        wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
         print('Epoch:', e)
 
         save_filename = model_dir + f"/model_{e}.pth"
@@ -113,7 +115,8 @@ def train(get_metrics=False):
             batch_loss, _, __ = model.forward(batch)
             val_total_loss += batch_loss.item()
 
-        print('Validation Loss:', val_total_loss/len(val_dataloader))  
+        print('Validation Loss:', val_total_loss/len(val_dataloader))
+        wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
 
         if val_total_loss < min_val_loss:
             print("Saving...")
@@ -121,94 +124,71 @@ def train(get_metrics=False):
             print('Saved as %s' % save_filename)  
             min_val_loss = val_total_loss
 
-        if get_metrics == True:
-            train_metrics = evaluate(model, "train")
-            print(f"Epoch {e} training metrics: ")
-            print(train_metrics)
+            if get_metrics == True:
+                train_metrics = evaluate(model, "train")
+                print(f"Epoch {e} training metrics: ")
+                print(train_metrics)
     
     metrics = evaluate(model, "train")
     metrics_fp = model_dir + "/train_metrics.txt"
     print(f"Saving final training metrics to: {metrics_fp}")
 
     with open(metrics_fp, "w+") as f:
-        for k in metrics.keys:
+        for k in metrics.keys():
             f.write(k + ": " + f"{metrics[k]}\n")
 
     return
 
-def evaluate(model, mode="eval", mean=True):
+def evaluate(model, mode="eval"):
     from torch.utils.data.dataloader import DataLoader
-    from dataloaders.clotho_dataloader import AudioCaptioningDataset
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset, get_numpy_from_datadir
     from util.utils import eval_model_embeddings
+    import wandb
     
     # Use the GPU if we can
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     print(f"Using device {device} for model evaluation.")
     
-    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split)
-
     if mode == "eval":
-        all_batch_metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
-        dataset_ind = [i for i in range(0, len(dataset), 100)] + [len(dataset)]
+        data_test = get_numpy_from_datadir(args.data_dir, 'test')
+        test_dataset = AudioCaptioningDataset(data_test['test_spectrograms'], data_test['test_captions'])
         
-        for i in range(len(dataset_ind)):
-            if i == 0:
-                continue
-            dataset_sub = torch.utils.data.Subset(dataset, range(dataset_ind[i-1], dataset_ind[i]))
-
-            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+        test_dataloader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False)
             
-            print(f"Calculating metrics for items {dataset_ind[i-1]} - {dataset_ind[i]}...")
-            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
-            for k in batch_metrics.keys():
-                all_batch_metrics[k].append(batch_metrics[k])
-    
+        metrics = eval_model_embeddings(model, device, test_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        
     if mode == "train":
-        train_size = int(0.8 * len(dataset))
-        val_size = len(dataset) - train_size
+        # - Create train and validation data loaders - #
+        data_train = get_numpy_from_datadir(args.data_dir, 'train/val')
+        train_dataset = AudioCaptioningDataset(data_train['train_spectrograms'], data_train['train_captions'], augment = True)
+        val_dataset = AudioCaptioningDataset(data_train['val_spectrograms'], data_train['val_captions'])
+
+        metrics = {}
+
+        # - Run metrics on training set - #
         
-        train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
-        train_dataset_ind = [i for i in range(0, len(train_dataset), 100)] + [len(train_dataset)]
-        val_dataset_ind = [i for i in range(0, len(val_dataset), 100)] + [len(val_dataset)]
-
-        all_batch_metrics = {"train_MRR":[], "train_MAP@K":[], "train_R@K":[], 
-                            "val_MRR":[], "val_MAP@K":[], "val_R@K":[]}
-
         print("Calculating training set metrics...")
-        for i in range(len(train_dataset_ind)):
-            if i == 0:
-                continue
-            print(f"Calculating metrics for items {train_dataset_ind[i-1]} - {train_dataset_ind[i]}...")
-            dataset_sub = torch.utils.data.Subset(train_dataset, range(train_dataset_ind[i-1], train_dataset_ind[i]))
 
-            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+        train_dataloader = DataLoader(train_dataset, batch_size=args.eval_batch_size, shuffle=True)
             
-            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
-            for k in batch_metrics.keys():
-                all_batch_metrics["train_"+k].append(batch_metrics[k])
+        train_metrics = eval_model_embeddings(model, device, train_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        for k in train_metrics.keys():
+            metrics["train_"+k] = train_metrics[k]
 
+        # - Run metrics on validation set - #
+        
         print("Calculating validation set metrics...")
-        for i in range(len(val_dataset_ind)):
-            if i == 0:
-                continue
-            print(f"Calculating metrics for items {val_dataset_ind[i-1]} - {val_dataset_ind[i]}...")
-            dataset_sub = torch.utils.data.Subset(val_dataset, range(val_dataset_ind[i-1], val_dataset_ind[i]))
-
-            dataloader = DataLoader(dataset_sub, batch_size=args.batch_size, shuffle=False)
+        val_dataloader = DataLoader(val_dataset, batch_size=args.eval_batch_size, shuffle=False)
             
-            batch_metrics = eval_model_embeddings(model, device, dataloader, ["MRR", "MAP@K", "R@K"], k=5)
-            for k in batch_metrics.keys():
-                all_batch_metrics["val_"+k].append(batch_metrics[k])
+        val_metrics = eval_model_embeddings(model, device, val_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        for k in val_metrics.keys():
+            metrics["val_"+k] = val_metrics[k]
 
-    if mean == True:
-        print(all_batch_metrics)
-        # Get the mean of all batches for each metric rather than the individual results of each batch
-        for k in all_batch_metrics.keys():
-            metric_mean = sum(all_batch_metrics[k]) / len(all_batch_metrics[k])
-            all_batch_metrics[k] = metric_mean
+        # Log our metrics
+        wandb.log({'Validation MRR': metrics["val_MRR"], 'Validation MAP@K': metrics['val_MAP@K'], 'Validation R@K': metrics['val_R@K']})
 
-    return all_batch_metrics
+    return metrics
 
 def load_model(device, state_dict=None):
     """
@@ -222,9 +202,9 @@ def load_model(device, state_dict=None):
     model = None
 
     if args.model == "ResNet":
-        model = BaseClip(device=device)
+        model = BaseClip(device=device, fine_tune=args.fine_tune)
     elif args.model == "ViT":
-        model = ViTClip(device=device)
+        model = ViTClip(device=device, fine_tune=args.fine_tune)
     else:
         raise NotImplemented
         
@@ -246,25 +226,23 @@ def main():
     for key in config:
         for k, v in config[key].items():
             setattr(args, k, v)
-
-    args.mode = "eval"
     
     # Setting the sys.path variable so we can find our models' Python modules
     set_syspath()
 
     # Make predictions using the appropriate method for the selected model
     if args.mode == "train":
-        train()
+        train(get_metrics=args.get_metrics)
     
     if args.mode == "eval":
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        model = load_model(device, args.model_fp)
+        model = load_model(device, args.checkpoint_path)
 
         metrics = evaluate(model, mode="eval")
 
-        metrics_fp = args.save_dir + "/eval_metrics.txt"
+        metrics_fp = args.save_dir + f"/{args.model}_{args.random_seed}_metrics.txt"
 
         with open(metrics_fp, "w+") as f:
             for k in metrics.keys():
