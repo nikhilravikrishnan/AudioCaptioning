@@ -92,8 +92,36 @@ def mean_reciprocal_rank(audio_embeddings, caption_embeddings):
     caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
     cosine_similarity = caption_embeddings @ audio_embeddings.T
 
-    return ((1/(torch.argmax(cosine_similarity, dim=1)+1)).sum() / cosine_similarity.shape[0]).item()
+    # Find unique audio embeddings
+    unique_audio_embeddings = torch.unique(audio_embeddings, dim=0)
 
+    # Find indices for each unique audio embedding
+    unique_audio_embedding_indices = [torch.where(torch.all(audio_embeddings == unique_audio_embeddings[i], dim=1))[0] for i in range(unique_audio_embeddings.shape[0])]
+
+    # Create zero like tensor same shape as cosine similarity
+    cosine_similarity_mask = torch.zeros_like(cosine_similarity)
+    
+    # For each unique audio embedding, compute the combinations of indices taken 2 at a time
+    for i in range(len(unique_audio_embedding_indices)):
+        for j in range(len(unique_audio_embedding_indices[i])):
+            for h in range(j, len(unique_audio_embedding_indices[i])):
+                cosine_similarity_mask[unique_audio_embedding_indices[i][j], unique_audio_embedding_indices[i][h]] = 1
+                cosine_similarity_mask[unique_audio_embedding_indices[i][h], unique_audio_embedding_indices[i][j]] = 1
+
+    # Sort cosine similarity in descending order row wise and get the indices
+    cosine_similarity_sorted, cosine_similarity_sorted_indices = torch.sort(cosine_similarity, dim=1, descending=True)
+
+    # Sort cosine similarity mask row wise using the indices from above
+    cosine_similarity_mask_sorted = cosine_similarity_mask[torch.arange(cosine_similarity_mask.shape[0]).unsqueeze(1), cosine_similarity_sorted_indices]
+
+    # Get the rank of the first non-zero
+    rank = torch.argmax(cosine_similarity_mask_sorted, 1, keepdim=True) + 1
+
+    # Take the reciprocal
+    rr = 1 / rank
+
+    # Get the mean
+    return rr.sum() / cosine_similarity.shape[0]
 # Implement mean reciprocal rank metric for evaluation
 
 def mean_avg_precision_at_k(audio_embeddings, caption_embeddings, k=10):
