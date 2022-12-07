@@ -14,14 +14,14 @@ class InfoNCE(nn.Module):
         targets = F.softmax(
             (audio_similarity + texts_similarity) / 2 * self.temperature, dim=-1
         )
-        texts_loss = self.cross_entropy(logits, targets, reduction='none')
-        images_loss = self.cross_entropy(logits.T, targets.T, reduction='none')
+        texts_loss = self.cross_entropy(logits, targets)
+        images_loss = self.cross_entropy(logits.T, targets.T)
         loss =  images_loss + texts_loss # shape: (batch_size)
         return loss.mean()
 
-    def cross_entropy(preds, targets, reduction='none'):
-        log_softmax = nn.LogSoftmax(dim=-1)
-        loss = (-targets * log_softmax(preds)).sum(1)
+    def cross_entropy(self, preds, targets, reduction='none'):
+        m = nn.LogSoftmax(dim=-1)
+        loss = (-targets * m(preds)).sum(1)
         if reduction == "none":
             return loss
         elif reduction == "mean":

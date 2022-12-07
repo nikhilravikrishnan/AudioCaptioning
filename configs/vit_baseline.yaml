@@ -4,7 +4,7 @@ system_settings:
     sys_path: '/content/drive/My Drive/MusicCaptioning/Walter/'
     model_lib_path: '/content/drive/My Drive/MusicCaptioning/Walter/models/'
     metrics_path: '/content/drive/My Drive/MusicCaptioning/Walter/metrics/'
-    checkpoint_path: '/content/drive/My Drive/MusicCaptioning/Walter/checkpoints/seed_7643_20221204000000/model_5.pth'
+    checkpoint_path: '/content/drive/MyDrive/MusicCaptioning/Walter/checkpoints/vit_baseline.pth'
 
 hyperparameters:
     split: 'train/val'
@@ -14,7 +14,7 @@ hyperparameters:
     lr: 0.07
 
 network:
-    model: "ResNet"
+    model: "ViT"
     fine_tune: True
     get_metrics: True
 

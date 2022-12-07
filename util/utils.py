@@ -1,32 +1,98 @@
 import torch
-from torch.nn import functional as F
+import torch.nn.functional as F
 
 def load_pretrained_img_model(model, device, checkpoint_path):
     pretrained_model = model()
     checkpoint = torch.load(checkpoint_path, map_location=device)
     pretrained_model.load_state_dict(checkpoint["model"])
+    
     return pretrained_model
 
+def eval_model_embeddings(model, device, dataLoader, metric_name: list, **kwargs):
+    """
+    Obtain the evaluation metric of the specified type from the given model
+    input:  - model: CLIP model
+            - metric_name: a list containing 1 or more of the following: ['MRR', 'MAP@K', 'R@K']
+    output: - metric specified
+    """
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
 
-def mean_reciprocal_rank(model, audio_embeddings, caption_embeddings):
+    metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
+
+    for (idx, batch) in enumerate(dataLoader):
+        print(f"Calculating metrics for batch {idx}...")
+        
+        batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
+        _, audio_embeddings, text_embeddings = model.forward(batch)
+
+        if 'MRR' in metric_name:
+            #print("Calculating MRR...")
+            metrics["MRR"].append(mean_reciprocal_rank(audio_embeddings, text_embeddings))
+
+        if 'MAP@K' in metric_name:
+            if 'k' not in kwargs:
+                raise ValueError("Needs K parameter.")
+            metrics["MAP@K"].append(mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k']))
+
+        if 'R@K' in metric_name:
+            if 'k' not in kwargs:
+                raise ValueError("Needs K parameter.")
+            #print("Calculating R@K...")
+            metrics["R@K"].append(mean_recall_at_k(audio_embeddings, text_embeddings, k = kwargs['k']))
+
+    # Generate the mean for each metric across all batches
+    for k in metrics.keys():
+        metrics[k] = sum(metrics[k])/len(metrics[k])
+            
+    return metrics
+   
+
+def mean_reciprocal_rank(audio_embeddings, caption_embeddings):
     """
     This function will implement the mean reciprocal rank function.
     input:  - model
             - video_embedding: Torch tensor ()
             - caption_embedding: Torch tensor ()
     output: - mean_reciprocal_rank: Scalar.
-
     """
-    ret = None
-    
-    audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
-    caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
-    cosine_similarity = caption_embeddings @ audio_embeddings.T
-    
-    
-    return ret
+    audio_embeddings = torch.nn.functional.normalize(audio_embeddings, p=2, dim=-1)
+    caption_embeddings = torch.nn.functional.normalize(caption_embeddings, p=2, dim=-1)
+    cosine_similarity = audio_embeddings @ caption_embeddings.T 
 
-def mean_avg_precision_at_k(model, audio_embeddings, caption_embeddings, k=10):
+    # Find unique audio embeddings
+    unique_audio_embeddings = torch.unique(audio_embeddings, dim=0)
+
+    # Find indices for each unique audio embedding
+    unique_audio_embedding_indices = [torch.where(torch.all(audio_embeddings == unique_audio_embeddings[i], dim=1))[0] for i in range(unique_audio_embeddings.shape[0])]
+
+    # Create zero like tensor same shape as cosine similarity
+    cosine_similarity_mask = torch.zeros_like(cosine_similarity)
+
+    # For each unique audio embedding, compute the combinations of indices taken 2 at a time
+    for i in range(len(unique_audio_embedding_indices)):
+        for j in range(len(unique_audio_embedding_indices[i])):
+            for h in range(j, len(unique_audio_embedding_indices[i])):
+                cosine_similarity_mask[unique_audio_embedding_indices[i][j], unique_audio_embedding_indices[i][h]] = 1
+                cosine_similarity_mask[unique_audio_embedding_indices[i][h], unique_audio_embedding_indices[i][j]] = 1
+
+    # Sort cosine similarity in descending order row wise and get the indices
+    cosine_similarity_sorted, cosine_similarity_sorted_indices = torch.sort(cosine_similarity, dim=1, descending=True)
+    cosine_similarity_mask_sorted_indices = cosine_similarity_sorted_indices * cosine_similarity_mask
+
+    # Get the rank of the first non-zero
+    rank = torch.max(cosine_similarity_mask_sorted_indices, dim=1, keepdim=True).values + 1
+
+    # Take the reciprocal
+    rr = 1 / rank
+    
+    # Get the mean
+    return rr.sum() / cosine_similarity.shape[0]
+    
+
+# Implement mean reciprocal rank metric for evaluation
+
+def mean_avg_precision_at_k(audio_embeddings, caption_embeddings, k=10):
     """
     This function will implement the mean reciprocal rank function.
     input:  - model
@@ -36,12 +102,43 @@ def mean_avg_precision_at_k(model, audio_embeddings, caption_embeddings, k=10):
     output: - mean_avg_precision_at_k: Scalar.
     
     """
+    # The way this is done right now tests the model's ability to retrieve
+    # the correct captions from audio
     ret = None
+    audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
+    caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
+    cosine_similarity = audio_embeddings @ caption_embeddings.T
+
+    # Find unique audio embeddings
+    unique_audio_embeddings = torch.unique(audio_embeddings, dim=0)
+
+    # Find indices for each unique audio embedding
+    unique_audio_embedding_indices = [torch.where(torch.all(audio_embeddings == unique_audio_embeddings[i], dim=1))[0] for i in range(unique_audio_embeddings.shape[0])]
+
+    # Create zero like tensor same shape as cosine similarity
+    cosine_similarity_mask = torch.zeros_like(cosine_similarity)
+    
+    # For each unique audio embedding, compute the combinations of indices taken 2 at a time
+    for i in range(len(unique_audio_embedding_indices)):
+        for j in range(len(unique_audio_embedding_indices[i])):
+            for h in range(j, len(unique_audio_embedding_indices[i])):
+                cosine_similarity_mask[unique_audio_embedding_indices[i][j], unique_audio_embedding_indices[i][h]] = 1
+                cosine_similarity_mask[unique_audio_embedding_indices[i][h], unique_audio_embedding_indices[i][j]] = 1
+
+
+    # Sort cosine similarity in descending order row wise and get the indices
+    cosine_similarity_sorted, cosine_similarity_sorted_indices = torch.sort(cosine_similarity, dim=1, descending=True)
+
+    # Sort cosine similarity mask row wise using the indices from above
+    cosine_similarity_mask_sorted = cosine_similarity_mask[torch.arange(cosine_similarity_mask.shape[0]).unsqueeze(1), cosine_similarity_sorted_indices]
+
+    # Sum over the first k columns of the sorted cosine similarity mask and divide by k
+    ret = (cosine_similarity_mask_sorted[:, :k].sum(dim=1) / k).mean().item()
 
     return ret
 
 
-def recall_at_k(model, audio_embeddings, caption_embeddings, k=10):
+def mean_recall_at_k(audio_embeddings, caption_embeddings, k=10):
     """
     This function will implement the mean reciprocal rank function.
     input:  - model
@@ -51,40 +148,44 @@ def recall_at_k(model, audio_embeddings, caption_embeddings, k=10):
     output: - recall_at_k: Scalar.
     
     """
+    # The way this is done right now tests the model's ability to retrieve
+    # the correct captions from audio
     ret = None
+
+    audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
+    caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
+    # Each row in the cosine similarity matrix will be for a given audio embedding
+    # With each column being a similarity score between that audio embedding and the caption embedding
+    # at that index
+    cosine_similarity = audio_embeddings @ caption_embeddings.T
+
+    # Find unique audio embeddings
+    unique_audio_embeddings = torch.unique(audio_embeddings, dim=0)
+    # Find indices for each unique audio embedding
+    unique_audio_embedding_indices = [torch.where(torch.all(audio_embeddings == unique_audio_embeddings[i], dim=1))[0] for i in range(unique_audio_embeddings.shape[0])]
+
+    # Create zero like tensor same shape as cosine similarity
+    cosine_similarity_mask = torch.zeros_like(cosine_similarity)
     
+    # For each unique audio embedding, compute the combinations of indices taken 2 at a time
+    for i in range(len(unique_audio_embedding_indices)):
+        for j in range(len(unique_audio_embedding_indices[i])):
+            for h in range(j, len(unique_audio_embedding_indices[i])):
+                cosine_similarity_mask[unique_audio_embedding_indices[i][j], unique_audio_embedding_indices[i][h]] = 1
+                cosine_similarity_mask[unique_audio_embedding_indices[i][h], unique_audio_embedding_indices[i][j]] = 1
+    # Sort cosine similarity in descending order row wise and get the indices
+    cosine_similarity_sorted, cosine_similarity_sorted_indices = torch.sort(cosine_similarity, dim=1, descending=True)
+    # Sort cosine similarity mask row wise using the indices from above
+    cosine_similarity_mask_sorted = cosine_similarity_mask[torch.arange(cosine_similarity_mask.shape[0]).unsqueeze(1), cosine_similarity_sorted_indices]
+    # Sum over the first k columns of the sorted cosine similarity mask and divide by k
+    ret = (cosine_similarity_mask_sorted[:, :k].sum(dim=1) / cosine_similarity_mask.sum(dim=1)).mean().item()
+
     return ret
 
-"""
-
-def find_matches(model, image_embeddings, query, image_filenames, n=9):
-    tokenizer = DistilBertTokenizer.from_pretrained(CFG.text_tokenizer)
-    encoded_query = tokenizer([query])
-
-    batch = {
-        key: torch.tensor(values).to(CFG.device)
-        for key, values in encoded_query.items()
-    }
-    with torch.no_grad():
-        text_features = model.text_encoder(
-            input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
-        )
-        text_embeddings = model.text_projection(text_features)
-    
-    image_embeddings_n = F.normalize(image_embeddings, p=2, dim=-1)
-    text_embeddings_n = F.normalize(text_embeddings, p=2, dim=-1)
-    dot_similarity = text_embeddings_n @ image_embeddings_n.T
-    
-    values, indices = torch.topk(dot_similarity.squeeze(0), n * 5)
-    matches = [image_filenames[idx] for idx in indices[::5]]
-    
-    _, axes = plt.subplots(3, 3, figsize=(10, 10))
-    for match, ax in zip(matches, axes.flatten()):
-        image = cv2.imread(f"{CFG.image_path}/{match}")
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        ax.imshow(image)
-        ax.axis("off")
-    
-    plt.show()
-
-"""
+if __name__ == "__main__":
+    mrr = mean_reciprocal_rank(test_audio, test_captions)
+    print(mrr)
+    mapk = mean_avg_precision_at_k(test_audio, test_captions, 2)
+    print(mapk)
+    recallk = mean_recall_at_k(test_audio, test_captions, 3)
+    print(recallk)

@@ -4,7 +4,7 @@ system_settings:
     sys_path: '/content/drive/My Drive/MusicCaptioning/Walter/'
     model_lib_path: '/content/drive/My Drive/MusicCaptioning/Walter/models/'
     metrics_path: '/content/drive/My Drive/MusicCaptioning/Walter/metrics/'
-    checkpoint_path: '/content/drive/My Drive/MusicCaptioning/Walter/checkpoints/seed_7643_20221204000000/model_5.pth'
+    checkpoint_path: '/content/drive/My Drive/MusicCaptioning/Walter/checkpoints/resnet_baseline.pth'
 
 hyperparameters:
     split: 'train/val'
