@@ -1,0 +1,21 @@
+system_settings:
+    data_dir: '/home/christian/GaTech/DL/'
+    save_dir: '/home/christian/GaTech/DL/model_weights'
+    sys_path: '/home/christian/GaTech/DL/MusicCaptioning'
+    model_lib_path: '/home/christian/GaTech/DL/MusicCaptioning/models'
+    metrics_path: '/home/christian/GaTech/DL/model_metrics'
+
+hyperparameters:
+    split: 'eva'
+    epochs: 100
+    batch_size: 16
+    random_seed: 7643
+
+network:
+    model: "ViT"
+    model_fp: '/home/christian/GaTech/DL/model_weights/ViTseed_7643/model_28.pth'
+
+weights:
+    pretrained: True
+    retrieval_method: from_library
+    weight_file: None

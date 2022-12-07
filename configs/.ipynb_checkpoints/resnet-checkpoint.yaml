@@ -1,6 +1,6 @@
 system_settings:
     data_dir: '/home/jupyter/data/'
-    save_dir: '/home/jupyter/checkpoints/ViT'
+    save_dir: '/home/jupyter/checkpoints/'
     sys_path: '/home/jupyter/music'
     model_lib_path: '/home/jupyter/music/models/'
 
@@ -8,10 +8,11 @@ hyperparameters:
     split: 'dev'
     epochs: 100
     batch_size: 16
-    random_seed: 7643
 
 network:
-    model: "ViT"
+    model: ResNet
+    get_feat_vec: True
+    embedding_layer: avgpool
 
 weights:
     pretrained: True
