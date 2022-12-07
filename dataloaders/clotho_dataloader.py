@@ -76,6 +76,7 @@ def get_numpy_from_datadir(data_dir, split):
     # Load the data
     i = 0
     for file in tqdm(os.listdir(data_dir)):
+          
         if file.endswith(".npy"):
             # Load the data item
             item = np.load(os.path.join(data_dir, file), allow_pickle=True)
@@ -111,7 +112,7 @@ def get_numpy_from_datadir(data_dir, split):
 """
 
 class AudioCaptioningDataset(Dataset):
-    def __init__(self, spectrograms, captions, augment=False):
+    def __init__(self, spectrograms, captions, augment=False, multichannel = False):
 
         self.spectogram_shape = (64, (40*44100+1)//512)     # From config file - 40 seconds * 44100 mhz
         self.caption_shape = (30,1)                         # From config file - 30 tokens long
@@ -119,6 +120,7 @@ class AudioCaptioningDataset(Dataset):
         self.augment = augment
         self.spectrogram = spectrograms
         self.caption = captions
+        self.multichannel = multichannel
 
     def __len__(self):
         return len(self.spectrogram)
@@ -133,20 +135,22 @@ class AudioCaptioningDataset(Dataset):
           caption = transform_captions(caption)
         else:
           # Just transpose the spectrogram
-          spectrogram = spectrogram.T
-          spectrogram = torch.tensor(spectrogram).unsqueeze(0)
+          spectrogram = torch.Tensor(spectrogram).T.unsqueeze(0)
 
         # Padding the spectrogram
-        spectrogram_pad = np.zeros(self.spectogram_shape)
+        spectrogram_pad = torch.zeros(self.spectogram_shape)
         spectrogram_pad[:spectrogram.size()[1], :spectrogram.size()[2]] = spectrogram
         spectrogram = spectrogram_pad
-        
+
         # Tokeninzing the captions
         tokenizer = RobertaTokenizer.from_pretrained('roberta-base')
         tokenizer_output  = tokenizer(caption, return_tensors = 'pt', padding = 'max_length', max_length = self.caption_shape[0], truncation=True)
         caption = tokenizer_output['input_ids']
         attention_mask = tokenizer_output['attention_mask']
         
+        if self.multichannel:
+          spectrogram = torch.stack([spectrogram, spectrogram, spectrogram], dim = 0)
+
         return spectrogram, caption , attention_mask 
 
 

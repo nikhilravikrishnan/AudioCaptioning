@@ -1,9 +1,0 @@
-network:
-  model: Wavegram_Logmel_Cnn14
-  get_feat_vec: False
-  embedding_layer: fc1
-
-weights:
-  pretrained: True
-  retrieval_method: from_file
-  weight_file: models/pretrained_weights/Wavegram_Logmel_Cnn14_mAP=0.439.pth

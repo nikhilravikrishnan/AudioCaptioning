@@ -5,10 +5,8 @@ def load_pretrained_img_model(model, device, checkpoint_path):
     pretrained_model = model()
     checkpoint = torch.load(checkpoint_path, map_location=device)
     pretrained_model.load_state_dict(checkpoint["model"])
+    
     return pretrained_model
-
-test_audio = torch.Tensor([[1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9]])
-test_captions = torch.Tensor([[1,2,3], [4,5,6], [1,2,3], [1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 2, 3], [4, 5, 6], [7, 8, 9]])
 
 def eval_model_embeddings(model, device, dataLoader, metric_name: list, **kwargs):
     """
@@ -20,69 +18,35 @@ def eval_model_embeddings(model, device, dataLoader, metric_name: list, **kwargs
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
 
-    audio_embedding_list = []
-    text_embedding_list = []
-
-    #print("Generating embeddings...")
-    for (idx, batch) in enumerate(dataLoader):
-        batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
-        _, audio_encoders, text_encoders = model.forward(batch)
-        audio_embedding_list.append(audio_encoders)
-        text_embedding_list.append(text_encoders)
-
-    # Concatenate all the embeddings
-    audio_embeddings = torch.cat(audio_embedding_list, dim = 0)
-    text_embeddings = torch.cat(text_embedding_list, dim = 0)
-
-    metrics = {}
-
-    if 'MRR' in metric_name:
-        #print("Calculating MRR...")
-        metrics["MRR"] = mean_reciprocal_rank(audio_embeddings, text_embeddings)
-    
-    if 'MAP@K' in metric_name:
-        if 'k' not in kwargs:
-            raise ValueError("Needs K parameter.")
-        #print("Calculating MAP@K...")
-        metrics["MAP@K"] = mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
-
-    if 'R@K' in metric_name:
-        if 'k' not in kwargs:
-            raise ValueError("Needs K parameter.")
-        #print("Calculating R@K...")
-        metrics["R@K"] = mean_recall_at_k(audio_embeddings, text_embeddings, k = kwargs['k'])
-
-    return metrics
-
-def evaluate_precalcuated_embeddings(audio_embeddings, text_embeddings, metric_name: list, num_batches=8, **kwargs):
     metrics = {"MRR":[], "MAP@K":[], "R@K":[]}
-    
-    # Start and stop indicies to slice the tensors into batches that fit into memory
-    batches = [i for i in range(0, audio_embeddings.shape[0], int(audio_embeddings.shape[0]/num_batches))] + [audio_embeddings.shape[0]]
 
-    # Calculate each of the requested metrics for each batch
-    for b in range(len(batches)):
-        start = batches[b]
-        end = batches[b+1]
+    for (idx, batch) in enumerate(dataLoader):
+        print(f"Calculating metrics for batch {idx}...")
+        
+        batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
+        _, audio_embeddings, text_embeddings = model.forward(batch)
 
         if 'MRR' in metric_name:
-            print("Calculating MRR...")
-            metrics["MRR"].append(mean_reciprocal_rank(audio_embeddings[start:end, :], text_embeddings[start:end, :]))
-    
+            #print("Calculating MRR...")
+            metrics["MRR"].append(mean_reciprocal_rank(audio_embeddings, text_embeddings))
+
         if 'MAP@K' in metric_name:
             if 'k' not in kwargs:
                 raise ValueError("Needs K parameter.")
-            print("Calculating MAP@K...")
-            metrics["MAP@K"].append(mean_avg_precision_at_k(audio_embeddings[start:end, :], text_embeddings[start:end, :], k = kwargs['k']))
+            metrics["MAP@K"].append(mean_avg_precision_at_k(audio_embeddings, text_embeddings, k = kwargs['k']))
 
         if 'R@K' in metric_name:
             if 'k' not in kwargs:
                 raise ValueError("Needs K parameter.")
-            print("Calculating R@K...")
-            metrics["R@K"].append(mean_recall_at_k(audio_embeddings[start:end, :], text_embeddings[start:end, :], k = kwargs['k']))
+            #print("Calculating R@K...")
+            metrics["R@K"].append(mean_recall_at_k(audio_embeddings, text_embeddings, k = kwargs['k']))
 
-    # Return them as a list - we can average them later if desired
+    # Generate the mean for each metric across all batches
+    for k in metrics.keys():
+        metrics[k] = sum(metrics[k])/len(metrics[k])
+            
     return metrics
+   
 
 def mean_reciprocal_rank(audio_embeddings, caption_embeddings):
     """
@@ -92,15 +56,39 @@ def mean_reciprocal_rank(audio_embeddings, caption_embeddings):
             - caption_embedding: Torch tensor ()
     output: - mean_reciprocal_rank: Scalar.
     """
-    
-    audio_embeddings = F.normalize(audio_embeddings, p=2, dim=-1)
-    caption_embeddings = F.normalize(caption_embeddings, p=2, dim=-1)
-    # Each row in the cosine similarity matrix will be for a given audio embedding
-    # With each column being a similarity score between that audio embedding and the caption embedding
-    # at that index
-    cosine_similarity = caption_embeddings @ audio_embeddings.T
+    audio_embeddings = torch.nn.functional.normalize(audio_embeddings, p=2, dim=-1)
+    caption_embeddings = torch.nn.functional.normalize(caption_embeddings, p=2, dim=-1)
+    cosine_similarity = audio_embeddings @ caption_embeddings.T 
 
-    return ((1/(torch.argmax(cosine_similarity, dim=1)+1)).sum() / cosine_similarity.shape[0]).item()
+    # Find unique audio embeddings
+    unique_audio_embeddings = torch.unique(audio_embeddings, dim=0)
+
+    # Find indices for each unique audio embedding
+    unique_audio_embedding_indices = [torch.where(torch.all(audio_embeddings == unique_audio_embeddings[i], dim=1))[0] for i in range(unique_audio_embeddings.shape[0])]
+
+    # Create zero like tensor same shape as cosine similarity
+    cosine_similarity_mask = torch.zeros_like(cosine_similarity)
+
+    # For each unique audio embedding, compute the combinations of indices taken 2 at a time
+    for i in range(len(unique_audio_embedding_indices)):
+        for j in range(len(unique_audio_embedding_indices[i])):
+            for h in range(j, len(unique_audio_embedding_indices[i])):
+                cosine_similarity_mask[unique_audio_embedding_indices[i][j], unique_audio_embedding_indices[i][h]] = 1
+                cosine_similarity_mask[unique_audio_embedding_indices[i][h], unique_audio_embedding_indices[i][j]] = 1
+
+    # Sort cosine similarity in descending order row wise and get the indices
+    cosine_similarity_sorted, cosine_similarity_sorted_indices = torch.sort(cosine_similarity, dim=1, descending=True)
+    cosine_similarity_mask_sorted_indices = cosine_similarity_sorted_indices * cosine_similarity_mask
+
+    # Get the rank of the first non-zero
+    rank = torch.max(cosine_similarity_mask_sorted_indices, dim=1, keepdim=True).values + 1
+
+    # Take the reciprocal
+    rr = 1 / rank
+    
+    # Get the mean
+    return rr.sum() / cosine_similarity.shape[0]
+    
 
 # Implement mean reciprocal rank metric for evaluation
 

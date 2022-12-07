@@ -1,9 +1,14 @@
 import sys
+sys.path.append("/content/drive/My Drive/MusicCaptioning/Walter/util/")
+sys.path.append("/content/drive/My Drive/MusicCaptioning/Walter/models/")
+from util.loss import InfoNCE
+
 import torch
 import torch.nn as nn
 import text_encoder
 import audio_encoders
 from torchvision.models import resnet50, ResNet50_Weights, vit_b_16, ViT_B_16_Weights
+#import ntlk
 import time
 
 import numpy as np
@@ -100,6 +105,7 @@ class ViTClip(nn.Module):
         
         return batch_loss, audio_embeddings, text_embeddings
 
+
 class BaseClip(nn.Module):
     def __init__(
         self,
@@ -124,23 +130,22 @@ class BaseClip(nn.Module):
         for layer_id in self.layer_extract:
             layer = dict([*self.audio_encoder.named_modules()])[layer_id]
             layer.register_forward_hook(self.save_output_hook(layer_id))
-        
-        params = ["audio_projection", "text_projection"]
+
         if fine_tune == True:
             # The list of layers to fine tune
-            params += ["audio_encoder.layer4.0", 
+            params = ["audio_encoder.layer4.0", 
                       "audio_encoder.layer4.1", 
                       "audio_encoder.layer4.2", 
                       "audio_encoder.fc"]
             
-        # Only create a gradient in the computational graph for the selected layers
-        for name, param in self.named_parameters():
-            for p in params:
-                if p in name:
-                    param.requires_grad = True
-                    break
-                else:
-                    param.requires_grad = False
+            # Only create a gradient in the computational graph for the selected layers
+            for name, param in self.named_parameters():
+                for p in params:
+                    if p in name:
+                        param.requires_grad = True
+                        break
+                    else:
+                        param.requires_grad = False
 
     def save_output_hook(self, layer):
         # Forward hook function is of the form:
@@ -165,18 +170,88 @@ class BaseClip(nn.Module):
         
         # Batch size
         batch_size = raw_audio_features.shape[0]
-        
+
         text_features = self.text_encoder(
             input_ids=raw_ids, attention_mask=raw_mask
         )
 
         processed_audio = torch.zeros((batch_size, self.audio_size))
 
-        for i in range(raw_audio_features.size()[0]):
-            _ = self.audio_encoder(raw_audio_features[i, :, :, :].unsqueeze(0))
-            audio_features = self._features["fc"]
-            processed_audio[i, :] = audio_features
+        if self.fine_tune == False:
+            with torch.no_grad():
+                for i in range(raw_audio_features.size()[0]):
+                    _ = self.audio_encoder(raw_audio_features[i, :, :, :].unsqueeze(0))
+                    audio_features = self._features["fc"]
+                    processed_audio[i, :] = audio_features
+        else:
+            for i in range(raw_audio_features.size()[0]):
+                _ = self.audio_encoder(raw_audio_features[i, :, :, :].unsqueeze(0))
+                audio_features = self._features["fc"]
+                processed_audio[i, :] = audio_features
 
+        # Getting audio and Text Embeddings (with same dimension)
+        audio_embeddings = self.audio_projection(processed_audio.to(self.device))
+        text_embeddings = self.text_projection(text_features)
+
+        batch_loss = loss.forward(text_embeddings, audio_embeddings)
+
+        return batch_loss, audio_embeddings, text_embeddings
+
+
+class PANNClip(nn.Module):
+    def __init__(
+        self,
+        device,
+        temp=1,
+        image_embedding_size=2048,
+        text_embedding_size=768,
+        audio_encoder=audio_encoders.Cnn14(), #add default params
+        model_path="/content/drive/MyDrive/MusicCaptioning/Nikhil/models/pretrained_weights/Cnn14_mAP=0.431.pth",
+        fine_tune=False
+
+    ):
+        super().__init__()
+        self.audio_encoder = audio_encoder.to(device)
+        self.text_encoder = text_encoder.TextEncoder().to(device)
+        self.audio_projection = ProjectionHead(embedding_dim=image_embedding_size).to(device)
+        self.text_projection = ProjectionHead(embedding_dim=text_embedding_size).to(device)
+        self.temperature = temp
+        self.saved_model = torch.load(model_path)
+
+        self.saved_model['model'].pop('spectrogram_extractor.stft.conv_real.weight')
+        self.saved_model['model'].pop('spectrogram_extractor.stft.conv_imag.weight')
+        self.saved_model['model'].pop('logmel_extractor.melW')
+        self.saved_model['model'].pop("fc1.weight")
+        self.saved_model['model'].pop("fc1.bias")
+        self.saved_model['model'].pop("fc_audioset.weight") 
+        self.saved_model['model'].pop("fc_audioset.bias")
+        self.device = device
+        self.fine_tune = fine_tune
+
+        self.audio_encoder.load_state_dict(self.saved_model["model"])
+
+        self.audio_embeddings = None
+        self.text_embeddings = None
+
+    def forward(self, batch):
+
+        loss = InfoNCE()
+
+        raw_audio_features = batch[0]
+
+        audio_features = self.audio_encoder(raw_audio_features)
+
+        raw_ids = batch[1]
+        raw_mask = batch[2]
+
+        # Reshape raw_ids and raw_mask to (batch_size, seq_len)
+        raw_ids = raw_ids.reshape(-1, raw_ids.shape[-1])
+        raw_mask = raw_mask.reshape(-1, raw_mask.shape[-1])
+
+        with torch.no_grad():
+            text_features = self.text_encoder(
+                input_ids=raw_ids, attention_mask=raw_mask
+            )
         # Getting audio and Text Embeddings (with same dimension)
         audio_embeddings = self.audio_projection(audio_features)
         text_embeddings = self.text_projection(text_features)
@@ -185,99 +260,6 @@ class BaseClip(nn.Module):
 
         return batch_loss, audio_embeddings, text_embeddings
 
-class PANNClip(nn.Module):
-    def __init__(
-        self,
-        temp,
-        image_embedding_size=2048,
-        text_embedding_size=768,
-        audio_encoder=None, #add default params
-    ):
-        super().__init__()
-        self.audio_encoder = audio_encoder
-        self.text_encoder = text_encoder.TextEncoder()
-        self.audio_projection = ProjectionHead(embedding_dim=image_embedding_size)
-        self.text_projection = ProjectionHead(embedding_dim=text_embedding_size)
-        self.temperature = temp
-        self.audio_embeddings = None
-        self.text_embeddings = None
-
-    def forward(self, batch):
-        raw_audio_features = batch["image"]
-        processed_audio = []
-        with torch.no_grad():
-            for i in range(raw_audio_features.size()[0]):
-                audio_features = self.audio_encoder(raw_audio_features[i, :, :, :])
-                processed_audio.append(audio_features["embedding"])
-        audio_stack = torch.stack(processed_audio)
-        text_features = self.text_encoder(
-            input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
-        )
-        # Getting audio and Text Embeddings (with same dimension)
-        audio_embeddings = self.audio_projection(audio_stack)
-        text_embeddings = self.text_projection(text_features)
-        return audio_embeddings, text_embeddings
-
-class ProjectionHead(nn.Module):
-    def __init__(
-        self,
-        embedding_dim,
-        projection_dim=128,
-        dropout=0.1
-    ):
-        super().__init__()
-        self.projection = nn.Linear(embedding_dim, projection_dim).double()
-        self.relu = nn.ReLU()
-        self.fc = nn.Linear(projection_dim, projection_dim).double()
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = nn.LayerNorm(projection_dim).double()
-    
-    def forward(self, x):
-        
-        # Reshape x to (batch_size, seq_len, embedding_dim)
-        x = x.reshape(-1, x.shape[-1]).double()
-
-        projected = self.projection(x)
-        x = self.relu(projected)
-        x = self.fc(x)
-        x = self.dropout(x)
-        x = x + projected # Residual
-        x = self.layer_norm(x)
-        
-        return x    
-
-class PANNClip(nn.Module):
-    def __init__(
-        self,
-        temp,
-        image_embedding_size=2048,
-        text_embedding_size=768,
-        audio_encoder=audio_encoders.Cnn14(), #add default params
-    ):
-        super().__init__()
-        self.audio_encoder = audio_encoder
-        self.text_encoder = text_encoder.TextEncoder()
-        self.audio_projection = ProjectionHead(embedding_dim=image_embedding_size)
-        self.text_projection = ProjectionHead(embedding_dim=text_embedding_size)
-        self.temperature = temp
-        self.audio_embeddings = None
-        self.text_embeddings = None
-
-    def forward(self, batch):
-        raw_audio_features = batch["image"]
-        processed_audio = []
-        with torch.no_grad():
-            for i in range(raw_audio_features.size()[0]):
-                audio_features = self.audio_encoder(raw_audio_features[i, :, :, :])
-                processed_audio.append(audio_features["embedding"])
-        audio_stack = torch.stack(processed_audio)
-        text_features = self.text_encoder(
-            input_ids=batch["input_ids"], attention_mask=batch["attention_mask"]
-        )
-        # Getting audio and Text Embeddings (with same dimension)
-        audio_embeddings = self.audio_projection(audio_stack)
-        text_embeddings = self.text_projection(text_features)
-        return audio_embeddings, text_embeddings
 
 class ProjectionHead(nn.Module):
     def __init__(
@@ -313,5 +295,6 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     test_model = ViTClip(device, fine_tune=True)
-
+    
+    
 
