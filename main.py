@@ -1,53 +1,220 @@
 import yaml
 import argparse
 import os
-
-from transformers import ViTFeatureExtractor, ViTModel
+import sys
+import torch.utils.data
+import datetime
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
-parser.add_argument("--config", default="./configs/pann.yaml")
+parser.add_argument("--config", default="/home/jupyter/music/configs/resnet.yaml")
+parser.add_argument("--mode", default="train")
 
-def run_vision_transformer():
+def set_syspath():
+    sys.path.append(args.sys_path)
+    sys.path.append(args.model_lib_path)
+    print("Current sys.path settings:")
+    print(sys.path)
+    return
+
+def train(get_metrics=False):
     """
-    Make predictions on the dataset using a Vision Transformer model on Mel-Spectrogram image representations
+    Make predictions on the dataset using the model specified using args.model on Mel-Spectrogram image representations
     of input audio.
-
-    See the original paper here:
-    https://arxiv.org/pdf/2010.11929.pdf
-
-    The implementation used comes from the HuggingFace transformers library and does not include a classification
-    head by default. See their documentation here:
-    https://huggingface.co/docs/transformers/model_doc/vit#vision-transformer-vit
+    See the config_format.md file in the configs folder for more setting details.
+    Parameters
+    ---
+    get_metrics: boolean
+        Whether to get metrics (MRR, Recall/Precision @ 5) each epoch of training
     """
+    from models.clip import BaseClip, ViTClip
+    from torch.utils.data.dataloader import DataLoader
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset, get_numpy_from_datadir
+    import torch.optim
+    import wandb
+
+    config = {"lr": args.lr, "batch_size":args.batch_size, "seed":args.random_seed}
+    
+    wandb.init(project=args.model + "-F22", entity="deep-learning-f22",
+              config=config)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = load_model(device=device)
+    
+    # Setting the random seed for reproducibility if needed
+    if args.random_seed is not None:
+        torch.manual_seed(args.random_seed)
+    
+    using_cuda = torch.cuda.is_available()
+    print(f"Running on CUDA: {using_cuda}")
+
+    # Settings to save the model
+    
+    model_dir = args.save_dir
+
+    epochs = args.epochs
+
+    optimizer = torch.optim.Adam(model.parameters(), lr =args.lr, weight_decay=0.)
+
+    
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", patience=1.0, factor=0.8)
+
+    # Create train and validation dataloaders
+    print("Creating dataloaders...")
+    data_train = get_numpy_from_datadir(args.data_dir, 'train/val')
+    train_dataset = AudioCaptioningDataset(data_train['train_spectrograms'], data_train['train_captions'], augment = True)
+    val_dataset = AudioCaptioningDataset(data_train['val_spectrograms'], data_train['val_captions'])
+
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+
+    min_val_loss = float("inf")
+
+    # Training and Validation
+    print("Starting training!")
+    
+    for e in range(epochs):
+        start = datetime.datetime.now()
+        print(f"Beginning epoch {e} at {start}.")
+        # Training
+        train_total_loss = 0
+        model.train()
+        for (idx,batch) in enumerate(train_dataloader):
+            if idx % 10 == 0:
+                batch_time = datetime.datetime.now()
+                print(f"Training batch {idx} processed at: {batch_time}")
+
+            # Send to device
+            batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
+            
+            batch_loss, audio_encoders, text_encoders = model.forward(batch)
+            optimizer.zero_grad()
+            batch_loss.backward()
+            optimizer.step()
+            lr_scheduler.step(metrics=batch_loss)
+            train_total_loss += batch_loss.item()
+        
+        
+        print('Training Loss:', train_total_loss/len(train_dataloader))
+        wandb.log({'Training Loss': train_total_loss/len(train_dataloader)})
+        print('Epoch:', e)
+
+        save_filename = model_dir + f"/model_{e}.pth"
+
+        model.eval()
+        val_total_loss = 0
+        
+        # Validation
+        for (idx,batch) in enumerate(val_dataloader):
+            if idx % 10 == 0:
+                batch_time = datetime.datetime.now()
+                print(f"Eval batch {idx} processed at: {batch_time}")
+            
+            batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
+            batch_loss, _, __ = model.forward(batch)
+            val_total_loss += batch_loss.item()
+
+        print('Validation Loss:', val_total_loss/len(val_dataloader))
+        wandb.log({'Validation Loss': val_total_loss/len(val_dataloader)})  
+
+        if val_total_loss < min_val_loss:
+            print("Saving...")
+            torch.save(model.state_dict(), save_filename)
+            print('Saved as %s' % save_filename)  
+            min_val_loss = val_total_loss
+
+            if get_metrics == True:
+                train_metrics = evaluate(model, "train")
+                print(f"Epoch {e} training metrics: ")
+                print(train_metrics)
+    
+    metrics = evaluate(model, "train")
+    metrics_fp = model_dir + "/train_metrics.txt"
+    print(f"Saving final training metrics to: {metrics_fp}")
+
+    with open(metrics_fp, "w+") as f:
+        for k in metrics.keys():
+            f.write(k + ": " + f"{metrics[k]}\n")
+
     return
 
-def run_resnet():
+def evaluate(model, mode="eval"):
+    from torch.utils.data.dataloader import DataLoader
+    from dataloaders.clotho_dataloader import AudioCaptioningDataset, get_numpy_from_datadir
+    from util.utils import eval_model_embeddings
+    import wandb
+    
+    # Use the GPU if we can
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    print(f"Using device {device} for model evaluation.")
+    
+    if mode == "eval":
+        data_test = get_numpy_from_datadir(args.data_dir, 'test')
+        test_dataset = AudioCaptioningDataset(data_test['test_spectrograms'], data_test['test_captions'])
+        
+        test_dataloader = DataLoader(test_dataset, batch_size=args.eval_batch_size, shuffle=False)
+            
+        metrics = eval_model_embeddings(model, device, test_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        
+    if mode == "train":
+        # - Create train and validation data loaders - #
+        data_train = get_numpy_from_datadir(args.data_dir, 'train/val')
+        train_dataset = AudioCaptioningDataset(data_train['train_spectrograms'], data_train['train_captions'], augment = True)
+        val_dataset = AudioCaptioningDataset(data_train['val_spectrograms'], data_train['val_captions'])
+
+        metrics = {}
+
+        # - Run metrics on training set - #
+        
+        print("Calculating training set metrics...")
+
+        train_dataloader = DataLoader(train_dataset, batch_size=args.eval_batch_size, shuffle=True)
+            
+        train_metrics = eval_model_embeddings(model, device, train_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        for k in train_metrics.keys():
+            metrics["train_"+k] = train_metrics[k]
+
+        # - Run metrics on validation set - #
+        
+        print("Calculating validation set metrics...")
+        val_dataloader = DataLoader(val_dataset, batch_size=args.eval_batch_size, shuffle=False)
+            
+        val_metrics = eval_model_embeddings(model, device, val_dataloader, ["MRR", "MAP@K", "R@K"], k=5)
+        for k in val_metrics.keys():
+            metrics["val_"+k] = val_metrics[k]
+
+        # Log our metrics
+        wandb.log({'Validation MRR': metrics["val_MRR"], 'Validation MAP@K': metrics['val_MAP@K'], 'Validation R@K': metrics['val_R@K']})
+
+    return metrics
+
+def load_model(device, state_dict=None):
     """
-    Make predictions on the dataset using a ResNet-50 model on Mel-Spectrogram image representations
-    of input audio.
-
-    The embedding for each image is made up of weights retrieved from the avgpool layer for that image after
-    a forward pass through the network. This is done using the "create_feature_extractor" method from torchvision,
-    but can also be done by setting a forward hook.
-
-    (See this helpful post:
-    https://stackoverflow.com/questions/52796121/how-to-get-the-output-from-a-specific-layer-from-a-pytorch-model)
-
+    Load a specified model with newly initialized weights or with a model
+    state loaded from a state dict at the specified file path.
     """
-    return
+    from models.clip import BaseClip, ViTClip
 
-def run_pann():
-    """
-    Make predictions on the dataset using a Pretrained Audio Neural Network
-    (a CNN pretrained for audio classification using spectrogram images)
+    # Use the GPU if we can
 
-    See the original paper here:
-    https://arxiv.org/pdf/1912.10211.pdf
+    model = None
 
-    And GitHub repo here:
-    https://github.com/qiuqiangkong/audioset_tagging_cnn
-    """
-    return
+    if args.model == "ResNet":
+        model = BaseClip(device=device, fine_tune=args.fine_tune)
+    elif args.model == "ViT":
+        model = ViTClip(device=device, fine_tune=args.fine_tune)
+    else:
+        raise NotImplemented
+        
+    if state_dict != None:
+        if device.type != "cuda":
+            model.load_state_dict(torch.load(state_dict, map_location=torch.device("cpu")))
+        else:
+            model.load_state_dict(torch.load(state_dict))
+
+    return model
 
 def main():
     # Use a config file to make sure we perform the correct experimental setup
@@ -59,16 +226,29 @@ def main():
     for key in config:
         for k, v in config[key].items():
             setattr(args, k, v)
-
-    # Get the dataset
+    
+    # Setting the sys.path variable so we can find our models' Python modules
+    set_syspath()
 
     # Make predictions using the appropriate method for the selected model
-    if args["model"] == "ViT":
-        run_vision_transformer()
-    if args["model"] == "ResNet":
-        run_resnet()
-    if args["model"] == "Wavegram_Logmel_Cnn14":
-        run_pann()
+    if args.mode == "train":
+        train(get_metrics=args.get_metrics)
+    
+    if args.mode == "eval":
+
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        model = load_model(device, args.checkpoint_path)
+
+        metrics = evaluate(model, mode="eval")
+
+        metrics_fp = args.save_dir + f"/{args.model}_{args.random_seed}_metrics.txt"
+
+        with open(metrics_fp, "w+") as f:
+            for k in metrics.keys():
+                f.write(k + ": " + f"{metrics[k]}\n")
+    
+    return
         
 
 if __name__ == "__main__":

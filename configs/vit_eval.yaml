@@ -4,7 +4,6 @@ system_settings:
     sys_path: '/home/christian/GaTech/DL/MusicCaptioning'
     model_lib_path: '/home/christian/GaTech/DL/MusicCaptioning/models'
     metrics_path: '/home/christian/GaTech/DL/model_metrics'
-    model_fp: '/home/christian/GaTech/DL/model_weights/ViTseed_7643/model_28.pth'
 
 hyperparameters:
     split: 'eva'
@@ -13,7 +12,8 @@ hyperparameters:
     random_seed: 7643
 
 network:
-    model: "ResNet"
+    model: "ViT"
+    model_fp: '/home/christian/GaTech/DL/model_weights/ViTseed_7643/model_28.pth'
 
 weights:
     pretrained: True
