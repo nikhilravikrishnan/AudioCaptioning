@@ -1,10 +1,10 @@
 hyperparameters:
-  data_dir: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data'
+  data_dir: 'C:/Users/wabec/MSA/7643/Project/MusicCaptioning/dataset/'
   split: 'dev'
   epochs: 1000
   batch_size: 16
-  vocab_file: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/clotho-dataset/data/words_list.p'
-  save_dir: '/home/nikhilrk/MusicCaptioning/MusicCaptioning/checkpoints/'
+  vocab_file: 'C:/Users/wabec/MSA/7643/Project/MusicCaptioning/vocab/'
+  save_dir: 'C:/Users/wabec/MSA/7643/Project/MusicCaptioning/checkpoint/'
 
 
 network:

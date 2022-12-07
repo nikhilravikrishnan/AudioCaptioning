@@ -10,7 +10,6 @@ from transformers import RobertaTokenizer
 import audio_encoders
 import text_encoder
 
-
 def get_data_from_numpy(data_dir, vocab_file = None, audio_encoder:str = None, layer_dict= None):
     
     """ Iterate through files in data_dir and load npy files into a list

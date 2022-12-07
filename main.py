@@ -7,7 +7,7 @@ from dataloaders.clotho_dataloader import AudioCaptioningDataset
 from models.clip import BaseClip 
 from transformers import ViTFeatureExtractor, ViTModel
 import torch.optim 
-from tensorboard_logger import configure, log_value
+#from tensorboard_logger import configure, log_value
 
 parser = argparse.ArgumentParser(description="Music caption retrieval project for Georgia Tech CS7643")
 parser.add_argument("--config", default="/home/nikhilrk/MusicCaptioning/MusicCaptioning/configs/resnet.yaml")
@@ -75,12 +75,10 @@ def run_resnet():
         # Training
         train_total_loss = 0
         model.train()
-        for (idx,batch) in enumerate(train_dataloader):
+        for (idx, batch) in enumerate(train_dataloader):
 
             # Send to device
-            # batch = {k: v.to(device) for k, v in batch.items()}
             batch = (batch[0].to(device), batch[1].to(device), batch[2].to(device))
-            
             batch_loss, audio_encoders, text_encoders = model.forward(batch)
             optimizer.zero_grad()
             batch_loss.backward()
@@ -95,7 +93,6 @@ def run_resnet():
         log_value('train_loss', train_total_loss/len(train_dataloader), e)
         log_value('learning_rate', optimizer.param_groups[0]['lr'], e)
 
-
         save_filename = os.path.join(args.save_dir, 'model_{}.pth'.format(e))
 
         model.eval()    
@@ -103,7 +100,7 @@ def run_resnet():
         
         # Validation
         for (idx,batch) in val_dataloader:
-            batch_loss, _, __ = model.forward(batch)
+            batch_loss, _, _ = model.forward(batch)
             val_total_loss += batch_loss.item()
 
         print('Validation Loss:', val_total_loss/len(val_dataloader))  
@@ -121,6 +118,7 @@ def run_resnet():
 
     return
 
+
 def run_pann():
     """
     Make predictions on the dataset using a Pretrained Audio Neural Network
@@ -132,6 +130,34 @@ def run_pann():
     And GitHub repo here:
     https://github.com/qiuqiangkong/audioset_tagging_cnn
     """
+
+    model = BaseClip(temp=1)
+   
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = model.to(device)
+
+
+    epochs = args.epochs
+    optimizer = torch.optim.Adam(model.parameters(), lr =1e-3, weight_decay=0.)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode="min", patience=1.0, factor=0.8)
+
+
+    dataset = AudioCaptioningDataset(data_dir = args.data_dir, split=args.split, vocab_file = args.vocab_file)
+    # dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
+
+    # Create train and validation dataloaders
+    train_size = int(0.8 * len(dataset))
+    val_size = len(dataset) - train_size
+    
+    train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, val_size])
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, shuffle=True)
+
+    min_val_loss = float("inf")
+
+    configure(args.save_dir + '/runs/', flush_secs=5)
+
     return
 
 def main():
